@@ -295,6 +295,42 @@ def kl_top_p():
                              handlelength=1.2, columnspacing=0.8, borderaxespad=0.4)
     save(fig, "kl-top-p.png")
 
+# ------------------------------------------------------------------ W4A8 vs W4A4
+# (ppl_w4a4, ppl_w4a8, pp_w4a4, pp_w4a8, tg_w4a4, tg_w4a8) for the imx file
+W4A = {
+    "0.8B": (21.390, 16.179, 31911, 28500, 421.7, 421.6),
+    "27B":  (6.559, 6.357, 2029, 1488, 26.68, 26.66),
+    "35B":  (6.467, 5.933, 4941, 3683, 143.9, 143.8),
+}
+
+def w4a8_vs_w4a4():
+    fig, ax = new_figure(1, 3, w=4.6, h=3.6)
+    panels = [("Mean PPL (lower is better)", 0, 1, False),
+              ("prefill pp4096 (t/s)", 2, 3, True),
+              ("decode tg128 (t/s)", 4, 5, True)]
+    models = list(W4A.keys())
+    for col, (title, i4, i8, logy) in enumerate(panels):
+        style_axes(ax[col], title=title)
+        if logy:
+            ax[col].set_yscale("log")
+        x = np.arange(len(models))
+        w = 0.38
+        v4 = [W4A[m][i4] for m in models]
+        v8 = [W4A[m][i8] for m in models]
+        ax[col].bar(x - w/2, v4, width=w, color=PALETTE["ref"], label="W4A4 (master)")
+        ax[col].bar(x + w/2, v8, width=w, color=PALETTE["accent"], label="W4A8 (branch)")
+        ax[col].set_xticks(x); ax[col].set_xticklabels(models)
+        for xi, (a, b) in enumerate(zip(v4, v8)):
+            ax[col].text(xi - w/2, a, f"{a:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["muted"])
+            ax[col].text(xi + w/2, b, f"{b:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["text"])
+        if logy:
+            ax[col].set_ylim(min(v4 + v8) * 0.6, max(v4 + v8) * 1.6)
+        else:
+            ax[col].set_ylim(0, max(v4 + v8) * 1.18)
+        ax[col].legend(frameon=False, fontsize=7, loc="upper right", ncol=1)
+    save(fig, "w4a8-vs-w4a4.png")
+
+
 if __name__ == "__main__":
     import sys
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -304,3 +340,5 @@ if __name__ == "__main__":
         kv_cache()
     if which in ("all", "kl"):
         kl_top_p()
+    if which in ("all", "w4a8"):
+        w4a8_vs_w4a4()
