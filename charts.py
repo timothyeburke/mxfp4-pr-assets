@@ -125,12 +125,19 @@ PPL = {
 
 
 def scatter_quant_points(ax, rows):
-    """Plot one model's quants: family (blue), mxfp4 (accent, larger), refs (gray, diamond)."""
-    fam_x, fam_y = [], []
-    acc_x, acc_y = [], []
-    moe_x, moe_y = [], []
-    ref_x, ref_y = [], []
+    """Plot one model's quants: family (blue), mxfp4 (accent, larger), refs (gray, diamond); label each point."""
+    # small per-point label offsets (dx, dy in points) to keep the tight 4-bit cluster legible
+    off = {
+        "bf16": (7, -15), "Q8_0": (7, -15), "q3ks": (7, 7),
+        "q5_1": (7, 9), "q5ks": (7, 9), "q4_1": (11, -13),
+        "q4ks": (6, 8), "q4_0": (7, -14), "iq4xs": (12, -1),
+        "mxfp4": (14, 4), "moe-recipe": (9, -16),
+    }
+    fam_x, fam_y, acc_x, acc_y, moe_x, moe_y, ref_x, ref_y = [], [], [], [], [], [], [], []
+    pts = []
     for (name, size, imx, noimx, is_ref) in rows:
+        disp = "moe-recipe" if name == "mxfp4-moe" else name
+        pts.append((size, imx, disp, is_ref, name in ("mxfp4", "mxfp4-moe")))
         if is_ref:
             ref_x.append(size); ref_y.append(imx)
         elif name == "mxfp4":
@@ -143,6 +150,11 @@ def scatter_quant_points(ax, rows):
     ax.scatter(ref_x, ref_y, s=54, marker="D", c=PALETTE["ref"], zorder=3, edgecolors="white", linewidths=0.6)
     ax.scatter(acc_x, acc_y, s=120, c=PALETTE["accent"], zorder=5, edgecolors="white", linewidths=1.0)
     ax.scatter(moe_x, moe_y, s=120, marker="D", c=PALETTE["accent"], zorder=5, edgecolors="white", linewidths=1.0)
+    for (x, y, disp, is_ref, is_mx) in pts:
+        dx, dy = off.get(disp, (7, 8))
+        col = PALETTE["muted"] if is_ref else (PALETTE["accent"] if is_mx else PALETTE["text"])
+        ax.annotate(disp, (x, y), textcoords="offset points", xytext=(dx, dy),
+                    fontsize=7, color=col, ha="left", va="bottom", zorder=6)
     return [
         Line2D([0], [0], marker="o", ls="", ms=9, mec="white", mfc=PALETTE["accent"], label="mxfp4 (all)"),
         Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["accent"], label="mxfp4 (MoE recipe)"),
@@ -192,10 +204,14 @@ def kv_cache():
     for col, (model, d) in enumerate(KV.items()):
         axm = ax[col]
         style_axes(axm, title=model, ylabel="KV mem (GiB @100k)" if col == 0 else None)
-        axm.bar(KV_TYPES, [d["mem"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
+        bm = axm.bar(KV_TYPES, [d["mem"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
+        axm.bar_label(bm, fmt="%.2f", fontsize=7, color=PALETTE["text"], padding=2)
+        axm.set_ylim(0, max(d["mem"].values()) * 1.22)
         axt = ax[3 + col]
         style_axes(axt, ylabel="decode (t/s)" if col == 0 else None)
-        axt.bar(KV_TYPES, [d["tg"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
+        bt = axt.bar(KV_TYPES, [d["tg"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
+        axt.bar_label(bt, fmt="%.1f", fontsize=7, color=PALETTE["text"], padding=2)
+        axt.set_ylim(0, max(d["tg"].values()) * 1.22)
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
