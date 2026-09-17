@@ -9,6 +9,8 @@ End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4
 
 ## Results
 
+Tested using 2x 5060 Ti 16GB throttled to 150/180W.
+
 **W4A8 (this PR) vs W4A4 - same mxfp4 files, isolated Blackwell MMA activation change:**
 
 ![W4A8 vs W4A4](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-vs-w4a4.png)

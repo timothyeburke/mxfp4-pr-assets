@@ -19,9 +19,8 @@ OUT = os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------ design
 PALETTE = {
-    "accent":  "#E4572E",   # mxfp4 (the subject)
-    "family":  "#5B8DEF",   # 4/5-bit family
-    "ref":     "#A6ADBB",   # bf16 / Q8_0 references
+    "mx":      "#76B900",   # mxfp4 (NVIDIA green)
+    "other":   "#9AA4B2",   # everything else (all refs: bf16, Q8_0, q4*, q5*, q3*)
     "text":    "#1F2933",
     "muted":   "#6B7280",
     "grid":    "#ECEFF3",
@@ -125,58 +124,44 @@ PPL = {
 
 
 def scatter_quant_points(ax, rows):
-    """Plot one model's quants: family (blue), mxfp4 (accent, larger), refs (gray, diamond); label each point."""
-    # small per-point label offsets (dx, dy in points) to keep the tight 4-bit cluster legible
+    """Plot one model's quants: mxfp4 (NVIDIA green), everything else gray; imx filled, no-imx hollow."""
+    # small per-point label offsets (dx, dy in points) to keep the tight cluster legible
     off = {
         "bf16": (7, -15), "Q8_0": (7, -15), "q3ks": (7, 7),
         "q5_1": (7, 9), "q5ks": (7, 9), "q4_1": (11, -13),
         "q4ks": (6, 8), "q4_0": (7, -14), "iq4xs": (12, -1),
-        "mxfp4": (14, 4), "moe-recipe": (9, -16),
+        "mxfp4": (14, 4), "mxfp4_moe": (9, -16),
     }
-    fam_x, fam_y, acc_x, acc_y, moe_x, moe_y, ref_x, ref_y = [], [], [], [], [], [], [], []
-    pts = []
     for (name, size, imx, noimx, is_ref) in rows:
-        disp = "moe-recipe" if name == "mxfp4-moe" else name
-        pts.append((size, imx, disp, is_ref, name in ("mxfp4", "mxfp4-moe")))
-        if is_ref:
-            ref_x.append(size); ref_y.append(imx)
-        elif name == "mxfp4":
-            acc_x.append(size); acc_y.append(imx)
-        elif name == "mxfp4-moe":
-            moe_x.append(size); moe_y.append(imx)
-        else:
-            fam_x.append(size); fam_y.append(imx)
-    ax.scatter(fam_x, fam_y, s=42, c=PALETTE["family"], zorder=3, edgecolors="white", linewidths=0.6)
-    ax.scatter(ref_x, ref_y, s=54, marker="D", c=PALETTE["ref"], zorder=3, edgecolors="white", linewidths=0.6)
-    ax.scatter(acc_x, acc_y, s=120, c=PALETTE["accent"], zorder=5, edgecolors="white", linewidths=1.0)
-    ax.scatter(moe_x, moe_y, s=120, marker="D", c=PALETTE["accent"], zorder=5, edgecolors="white", linewidths=1.0)
-    for (x, y, disp, is_ref, is_mx) in pts:
+        disp = "mxfp4_moe" if name == "mxfp4-moe" else name
+        is_mx = name in ("mxfp4", "mxfp4-moe")
+        col = PALETTE["mx"] if is_mx else PALETTE["other"]
+        marker = "D" if name == "mxfp4-moe" else "o"
+        s = 110 if is_mx else 46
+        ax.scatter([size], [imx], s=s, c=col, marker=marker, zorder=5, edgecolors="white", linewidths=0.8)
+        if noimx is not None:
+            ax.scatter([size], [noimx], s=s, facecolors="none", edgecolors=col, linewidths=1.6, marker=marker, zorder=4)
         dx, dy = off.get(disp, (7, 8))
-        col = PALETTE["muted"] if is_ref else (PALETTE["accent"] if is_mx else PALETTE["text"])
-        ax.annotate(disp, (x, y), textcoords="offset points", xytext=(dx, dy),
-                    fontsize=7, color=col, ha="left", va="bottom", zorder=6)
-    return [
-        Line2D([0], [0], marker="o", ls="", ms=9, mec="white", mfc=PALETTE["accent"], label="mxfp4 (all)"),
-        Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["accent"], label="mxfp4 (MoE recipe)"),
-        Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["family"], label="4/5-bit family"),
-        Line2D([0], [0], marker="D", ls="", ms=8, mec="white", mfc=PALETTE["ref"], label="ref (bf16 / Q8_0)"),
-    ]
+        ax.annotate(disp, (size, imx), textcoords="offset points", xytext=(dx, dy),
+                    fontsize=7, color=(PALETTE["mx"] if is_mx else PALETTE["muted"]),
+                    ha="left", va="bottom", zorder=6)
+    items = [Line2D([0], [0], marker="o", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4")]
+    if any(r[0] == "mxfp4-moe" for r in rows):
+        items.append(Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4_moe"))
+    items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["other"], label="3/4/5-bit family"))
+    ax.legend(handles=items, loc="upper right", frameon=False, fontsize=8, ncol=1, handlelength=1.4, borderaxespad=0.5)
+    return
 
 
 def ppl_vs_size():
     fig, axgrid = new_figure(1, 3, w=5.4, h=4.3)
-    handles = None
     for ax, (model, rows) in zip(axgrid, PPL.items()):
         style_axes(ax, title=model, xlabel="file size (GB)", ylabel="PPL")
-        h = scatter_quant_points(ax, rows)
-        if handles is None:
-            handles = h
+        scatter_quant_points(ax, rows)
         ax.set_xlim(min(r[1] for r in rows) * 0.9, max(r[1] for r in rows) * 1.08)
         ymin, ymax = min(r[2] for r in rows), max(r[2] for r in rows)
         pad = (ymax - ymin) * 0.15
         ax.set_ylim(ymin - pad, ymax + pad)
-    legend_items(axgrid[0], handles, loc="lower right", frameon=False, fontsize=9,
-                             ncol=1, handlelength=1.4, borderaxespad=0.6)
     save(fig, "ppl-vs-size.png")
     return
 
@@ -193,11 +178,7 @@ KV = {
 }
 
 def kv_color(t):
-    if t == "f16":
-        return PALETTE["ref"]
-    if t == "mxfp4":
-        return PALETTE["accent"]
-    return PALETTE["family"]
+    return PALETTE["mx"] if t == "mxfp4" else PALETTE["other"]
 
 def kv_cache():
     fig, ax = new_figure(2, 3, w=5.0, h=3.5)
@@ -211,7 +192,8 @@ def kv_cache():
         style_axes(axt, ylabel="decode (t/s)" if col == 0 else None)
         bt = axt.bar(KV_TYPES, [d["tg"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
         axt.bar_label(bt, fmt="%.1f", fontsize=7, color=PALETTE["text"], padding=2)
-        axt.set_ylim(0, max(d["tg"].values()) * 1.22)
+        axt.set_yscale("log")
+        axt.set_ylim(min(d["tg"].values()) * 0.9, max(d["tg"].values()) * 1.08)
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
@@ -254,29 +236,27 @@ KL = {
 }
 
 def _kl_color(q):
-    if q == "q8":
-        return PALETTE["ref"]
-    if q == "mxfp4":
-        return PALETTE["accent"]
-    return PALETTE["family"]
+    return PALETTE["mx"] if q == "mxfp4" else PALETTE["other"]
+
 
 def _plot_kl_panel(ax, d, key):
-    xs = list(range(len(KL_ORDER)))
-    imx_x, imx_y = [], []
-    pl_x, pl_y = [], []
-    cols = []
-    for i, q in enumerate(KL_ORDER):
+    xs = np.arange(len(KL_ORDER))
+    w = 0.4
+    imx_x, noimx_x = xs - w/2, xs + w/2
+    imx_vals, noimx_vals, cols = [], [], []
+    for q in KL_ORDER:
         ik, it, pk, pt = d[q]
-        yv = ik if key == "kld" else it
-        imx_x.append(i - 0.18); imx_y.append(yv); cols.append(_kl_color(q))
-        if pk is not None:
-            pl_x.append(i + 0.18); pl_y.append(pk if key == "kld" else pt)
-    ax.scatter(imx_x, imx_y, s=64, c=cols, zorder=5, edgecolors="white", linewidths=0.8)
-    if pl_x:
-        ax.scatter(pl_x, pl_y, s=64, facecolors="none", edgecolors=cols[:len(pl_x)], linewidths=1.4, zorder=4)
+        imx_vals.append(ik if key == "kld" else it)
+        noimx_vals.append((pk if key == "kld" else pt) if pk is not None else None)
+        cols.append(_kl_color(q))
+    ax.bar(imx_x, imx_vals, width=w, color=cols, zorder=3)
+    has_noimx = [v is not None for v in noimx_vals]
+    if any(has_noimx):
+        ax.bar(noimx_x, [v if v is not None else 0 for v in noimx_vals], width=w,
+               color="none", hatch="//", edgecolor=cols, linewidth=1.0, zorder=3)
     ax.set_xticks(xs); ax.set_xticklabels(KL_ORDER, fontsize=8)
     ax.set_xlim(-0.6, len(KL_ORDER) - 0.4)
-    ys = imx_y + pl_y
+    ys = imx_vals + [v for v in noimx_vals if v is not None]
     ymin, ymax = min(ys), max(ys)
     pad = (ymax - ymin) * 0.18
     ax.set_ylim(ymin - pad, ymax + pad)
@@ -288,11 +268,14 @@ def kl_top_p():
         _plot_kl_panel(ax[col], d, "kld")
         style_axes(ax[3 + col], ylabel="Same top-p % (higher is better)")
         _plot_kl_panel(ax[3 + col], d, "topp")
-    handles = [Line2D([0], [0], marker="o", ls="", ms=8, mec="white", mfc=PALETTE["accent"], label="imatrix"),
-               Line2D([0], [0], marker="o", ls="", ms=8, mfc="none", mec=PALETTE["family"], label="no imatrix"),
-               Line2D([0], [0], marker="o", ls="", ms=8, mec="white", mfc=PALETTE["ref"], label="ref (Q8_0)")]
-    legend_items(ax[0], handles, loc="upper right", frameon=False, fontsize=8, ncol=3,
-                             handlelength=1.2, columnspacing=0.8, borderaxespad=0.4)
+    from matplotlib.patches import Patch
+    handles = [
+        Patch(facecolor=PALETTE["mx"], edgecolor="white", label="mxfp4 (imatrix)"),
+        Patch(facecolor="none", edgecolor=PALETTE["mx"], hatch="//", label="mxfp4 (no imatrix)"),
+        Patch(facecolor=PALETTE["other"], edgecolor="white", label="3/4/5-bit (imatrix)"),
+        Patch(facecolor="none", edgecolor=PALETTE["other"], hatch="//", label="3/4/5-bit (no imatrix)"),
+    ]
+    legend_items(ax[0], handles, loc="upper right", frameon=False, fontsize=8, ncol=2, handlelength=1.2, columnspacing=0.8, borderaxespad=0.4)
     save(fig, "kl-top-p.png")
 
 # ------------------------------------------------------------------ W4A8 vs W4A4
@@ -317,8 +300,8 @@ def w4a8_vs_w4a4():
         w = 0.38
         v4 = [W4A[m][i4] for m in models]
         v8 = [W4A[m][i8] for m in models]
-        ax[col].bar(x - w/2, v4, width=w, color=PALETTE["ref"], label="W4A4 (master)")
-        ax[col].bar(x + w/2, v8, width=w, color=PALETTE["accent"], label="W4A8 (branch)")
+        ax[col].bar(x - w/2, v4, width=w, color=PALETTE["other"], label="W4A4 (master)")
+        ax[col].bar(x + w/2, v8, width=w, color=PALETTE["mx"], label="W4A8 (branch)")
         ax[col].set_xticks(x); ax[col].set_xticklabels(models)
         for xi, (a, b) in enumerate(zip(v4, v8)):
             ax[col].text(xi - w/2, a, f"{a:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["muted"])
