@@ -178,14 +178,12 @@ The previous native MXFP4 path quantized activations to e2m1 (W4A4), the dominan
 
 Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations; its own data showed W4A4 at 84.24% same-top-P (KLD 0.1316) vs 89.99% for W4A16 without MMQ. W4A8 takes the near-W4A16 quality with the MMQ speed.
 
-### Scale selection: the standard e8m0 formula, stepped in from the format max, plus the optional imatrix weight path
+### Scale selection: e8m0 scales stepped in from the format max, plus the optional imatrix weight path
 
-The e8m0 block scale is the standard power-of-two formula, `round_to_pow2(amax / C)`, where C is a value slightly stepped in from the format's max (the mantissa's largest code), so the block's largest value maps inside the representable range instead of onto its edge. The OCP spec's overflow-safe choice (e2m1 /6.0, e4m3 /448) fits the block to its largest outlier and wastes resolution on the bulk; the stepped-in values leave headroom and measured better across the wikitext-2 PPL:
+The e8m0 block scale is the standard power-of-two formula, `round_to_pow2(amax / C)`, where C is stepped in from the format's max (the mantissa's largest code), so the block's largest value maps inside the representable range instead of onto its edge. The e2m1 weight uses the codebase's existing C = 4.0 (stepped in from the e2m1 max of 6.0); we found a similar benefit for the e4m3 activation, with a plateau and a cliff past ~320, suggesting the optimum is stepped in from the max for values in range for attention:
 
-- **e2m1 (weight and KV cache): C = 4.0** (the e2m1 max is 6.0). A flat PPL plateau from ~3-5 with a cliff above 5. 27B: 6.44 at /4.0 vs 6.69 at the spec; 35B: 5.997 vs 6.42. The per-block amax adapts the scale per 32-wide block.
-- **e4m3 (activation): C = 256** (the e4m3 max is 448). The PPL plateaus across ~128-256 and cliffs past ~320 (where the grid becomes too coarse to be worth the dynamic range). 27B: 6.32 at /256 vs 6.69 at the spec's /448.
-
-We dropped the closed-form Universal Optimal Scaling (UOS) Q_max from the MXAttention paper (E2M1 7.25, E4M3 464.0) in favor of the standard stepped-in formula: it is simpler and measured better on this grid.
+- **e2m1 (weight and KV cache): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value. A flat PPL plateau from ~3-5 with a cliff above 5. 27B: 6.44 at /4.0 vs 6.69 at the spec; 35B: 5.997 vs 6.42.
+- **e4m3 (activation): C = 256** (the e4m3 max is 448). A plateau across ~128-256, then a cliff past ~320 (where the grid becomes too coarse to be worth the dynamic range) - the same stepped-in optimum as the weight. 27B: 6.32 at /256 vs 6.69 at the spec's /448.
 
 A single-pass "pick the scale that minimizes output error" (the natural per-layer optimum) is a *worse* default: because the e8m0 scale is a power of two, the per-tensor optimum lands at a different scale than the one that generalizes, and it measured worse (6.5586 vs 6.32 on the 27B). The fixed stepped-in scales are the robust choice.
 
@@ -193,7 +191,7 @@ A single-pass "pick the scale that minimizes output error" (the natural per-laye
 
 Newly quantized files differ from old ones byte for byte; existing GGUFs are unaffected since dequantization is unchanged.
 
-Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations (W4A4); this PR's W4A8 + tight-scale + imatrix work takes the near-f16 quality with the MMQ speed. The earlier UOS (closed-form, distribution-free) scale was tried and is no longer used - the measured fixed scales above outperform it.
+Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations (W4A4); this PR's W4A8 + stepped-in-scale + imatrix work takes the near-f16 quality with the MMQ speed.
 
 ### Controls and provenance
 
