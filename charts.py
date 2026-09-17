@@ -125,13 +125,6 @@ PPL = {
 
 def scatter_quant_points(ax, rows):
     """Plot one model's quants: mxfp4 (NVIDIA green), everything else gray; imx filled, no-imx hollow."""
-    # small per-point label offsets (dx, dy in points) to keep the tight cluster legible
-    off = {
-        "bf16": (7, -15), "Q8_0": (7, -15), "q3ks": (7, 7),
-        "q5_1": (7, 9), "q5ks": (7, 9), "q4_1": (11, -13),
-        "q4ks": (6, 8), "q4_0": (7, -14), "iq4xs": (12, -1),
-        "mxfp4": (14, 4), "mxfp4_moe": (9, -16),
-    }
     for (name, size, imx, noimx, is_ref) in rows:
         disp = "mxfp4_moe" if name == "mxfp4-moe" else name
         is_mx = name in ("mxfp4", "mxfp4-moe")
@@ -141,14 +134,14 @@ def scatter_quant_points(ax, rows):
         ax.scatter([size], [imx], s=s, c=col, marker=marker, zorder=5, edgecolors="white", linewidths=0.8)
         if noimx is not None:
             ax.scatter([size], [noimx], s=s, facecolors="none", edgecolors=col, linewidths=1.6, marker=marker, zorder=4)
-        dx, dy = off.get(disp, (7, 8))
-        ax.annotate(disp, (size, imx), textcoords="offset points", xytext=(dx, dy),
+        ax.annotate(disp, (size, imx), textcoords="offset points", xytext=(7, 8),
                     fontsize=7, color=(PALETTE["mx"] if is_mx else PALETTE["muted"]),
                     ha="left", va="bottom", zorder=6)
     items = [Line2D([0], [0], marker="o", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4")]
     if any(r[0] == "mxfp4-moe" for r in rows):
         items.append(Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4_moe"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["other"], label="3/4/5-bit family"))
+    items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec=PALETTE["other"], mfc="none", label="no imatrix"))
     ax.legend(handles=items, loc="upper right", frameon=False, fontsize=8, ncol=1, handlelength=1.4, borderaxespad=0.5)
     return
 
@@ -239,7 +232,7 @@ def _kl_color(q):
     return PALETTE["mx"] if q == "mxfp4" else PALETTE["other"]
 
 
-def _plot_kl_panel(ax, d, key):
+def _plot_kl_panel(ax, d, key, ymin0=False):
     xs = np.arange(len(KL_ORDER))
     w = 0.4
     imx_x, noimx_x = xs - w/2, xs + w/2
@@ -257,15 +250,15 @@ def _plot_kl_panel(ax, d, key):
     ax.set_xticks(xs); ax.set_xticklabels(KL_ORDER, fontsize=8)
     ax.set_xlim(-0.6, len(KL_ORDER) - 0.4)
     ys = imx_vals + [v for v in noimx_vals if v is not None]
-    ymin, ymax = min(ys), max(ys)
+    ymin, ymax = (0.0 if ymin0 else min(ys)), max(ys)
     pad = (ymax - ymin) * 0.18
-    ax.set_ylim(ymin - pad, ymax + pad)
+    ax.set_ylim(ymin if ymin0 else (ymin - pad), ymax + pad)
 
 def kl_top_p():
     fig, ax = new_figure(2, 3, w=5.0, h=3.6)
     for col, (model, d) in enumerate(KL.items()):
         style_axes(ax[col], title=model, ylabel="Mean KLD (lower is better)")
-        _plot_kl_panel(ax[col], d, "kld")
+        _plot_kl_panel(ax[col], d, "kld", ymin0=True)
         style_axes(ax[3 + col], ylabel="Same top-p % (higher is better)")
         _plot_kl_panel(ax[3 + col], d, "topp")
     from matplotlib.patches import Patch
