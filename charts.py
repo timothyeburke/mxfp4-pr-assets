@@ -134,9 +134,9 @@ def scatter_quant_points(ax, rows):
         ax.scatter([size], [imx], s=s, c=col, marker=marker, zorder=5, edgecolors="white", linewidths=0.8)
         if noimx is not None:
             ax.scatter([size], [noimx], s=s, facecolors="none", edgecolors=col, linewidths=1.6, marker=marker, zorder=4)
-        ax.annotate(disp, (size, imx), textcoords="offset points", xytext=(7, 8),
+        ax.annotate(disp, (size, imx), textcoords="offset points", xytext=(7, 0),
                     fontsize=7, color=(PALETTE["mx"] if is_mx else PALETTE["muted"]),
-                    ha="left", va="bottom", zorder=6)
+                    ha="left", va="center", zorder=6)
     items = [Line2D([0], [0], marker="o", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4")]
     if any(r[0] == "mxfp4-moe" for r in rows):
         items.append(Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4_moe"))
@@ -152,8 +152,10 @@ def ppl_vs_size():
         style_axes(ax, title=model, xlabel="file size (GB)", ylabel="PPL", xlog=True)
         scatter_quant_points(ax, rows)
         ax.set_xlim(min(r[1] for r in rows) * 0.98, max(r[1] for r in rows) * 1.06)
-        from matplotlib.ticker import ScalarFormatter
-        ax.xaxis.set_major_formatter(ScalarFormatter())
+        from matplotlib.ticker import FuncFormatter, MaxNLocator
+        # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.1f}" if v < 10 else f"{v:.0f}"))
         ymin, ymax = min(r[2] for r in rows), max(r[2] for r in rows)
         pad = (ymax - ymin) * 0.15
         ax.set_ylim(ymin - pad, ymax + pad)
@@ -189,13 +191,15 @@ def kv_cache():
         axt.bar_label(bt, fmt="%.1f", fontsize=7, color=PALETTE["text"], padding=2)
         axt.set_yscale("log")
         axt.set_ylim(min(d["tg"].values()) * 0.9, max(d["tg"].values()) * 1.08)
-        from matplotlib.ticker import ScalarFormatter
-        axt.yaxis.set_major_formatter(ScalarFormatter())
+        from matplotlib.ticker import FuncFormatter, MaxNLocator
+        # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
+        axt.yaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
+        axt.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
 # per quant: (imx_kld, imx_topp, plain_kld, plain_topp); q8 has no plain
-KL_ORDER = ["q8", "q5_1", "q5ks", "q4_1", "q4ks", "iq4xs", "mxfp4", "q4_0", "q3ks"]
+KL_ORDER = ["q8", "q5_1", "q5ks", "q4_1", "q4ks", "iq4xs", "mxfp4", "mxfp4_moe", "q4_0", "q3ks"]
 KL = {
     "0.8B": {
         "q8":    (0.001274, 98.029, None, None),
@@ -205,6 +209,7 @@ KL = {
         "q4ks":  (0.052137, 88.432, 0.076593, 86.340),
         "iq4xs": (0.056000, 88.111, 0.069437, 86.883),
         "mxfp4": (0.149358, 81.307, 0.187225, 78.825),
+        "mxfp4_moe": (None, None, None, None),
         "q4_0":  (0.113817, 83.581, 0.143692, 81.412),
         "q3ks":  (0.278512, 74.846, 0.376418, 71.496),
     },
@@ -216,6 +221,7 @@ KL = {
         "q4ks":  (0.046680, 93.995, 0.059856, 92.591),
         "iq4xs": (0.039574, 94.317, 0.049913, 93.341),
         "mxfp4": (0.089838, 90.217, 0.101166, 89.239),
+        "mxfp4_moe": (None, None, None, None),
         "q4_0":  (0.058929, 92.702, 0.069682, 91.645),
         "q3ks":  (0.114200, 87.891, 0.173826, 85.424),
     },
@@ -227,30 +233,30 @@ KL = {
         "q4ks":  (0.029115, 93.066, 0.043272, 91.421),
         "iq4xs": (0.029952, 92.986, 0.038388, 91.981),
         "mxfp4": (0.068176, 89.343, 0.087843, 87.920),
+        "mxfp4_moe": (0.028607, 93.355, None, None),
         "q4_0":  (0.046439, 91.255, 0.055915, 90.307),
         "q3ks":  (0.106026, 86.843, 0.151525, 84.141),
     },
 }
 
 def _kl_color(q):
-    return PALETTE["mx"] if q == "mxfp4" else PALETTE["other"]
+    return PALETTE["mx"] if q in ("mxfp4", "mxfp4_moe") else PALETTE["other"]
 
 
 def _plot_kl_panel(ax, d, key, ymin0=False):
     xs = np.arange(len(KL_ORDER))
     w = 0.4
-    imx_x, noimx_x = xs - w/2, xs + w/2
-    imx_vals, noimx_vals, cols = [], [], []
-    for q in KL_ORDER:
+    imx_x, imx_vals, cols = [], [], []
+    noimx_x, noimx_vals, nocols = [], [], []
+    for i, q in enumerate(KL_ORDER):
         ik, it, pk, pt = d[q]
-        imx_vals.append(ik if key == "kld" else it)
-        noimx_vals.append((pk if key == "kld" else pt) if pk is not None else None)
-        cols.append(_kl_color(q))
+        if ik is not None or it is not None:
+            imx_x.append(i - w/2); imx_vals.append(ik if key == "kld" else it); cols.append(_kl_color(q))
+        if pk is not None or pt is not None:
+            noimx_x.append(i + w/2); noimx_vals.append(pk if key == "kld" else pt); nocols.append(_kl_color(q))
     ax.bar(imx_x, imx_vals, width=w, color=cols, zorder=3)
-    has_noimx = [v is not None for v in noimx_vals]
-    if any(has_noimx):
-        ax.bar(noimx_x, [v if v is not None else 0 for v in noimx_vals], width=w,
-               color="none", hatch="//", edgecolor=cols, linewidth=1.0, zorder=3)
+    if noimx_vals:
+        ax.bar(noimx_x, noimx_vals, width=w, color="none", hatch="//", edgecolor=nocols, linewidth=1.0, zorder=3)
     ax.set_xticks(xs); ax.set_xticklabels(KL_ORDER, fontsize=8)
     ax.set_xlim(-0.6, len(KL_ORDER) - 0.4)
     ys = imx_vals + [v for v in noimx_vals if v is not None]

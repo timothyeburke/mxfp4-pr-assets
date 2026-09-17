@@ -39,7 +39,7 @@ The 4-bit family clusters tightly in PPL; mxfp4 sits in the pack on the dense mo
 
 ![KL divergence + same top-p](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kl-top-p.png)
 
-KLD and same top-p are both monotonic in bit-width, and the imatrix (filled) beats no-imatrix (hollow) for every quant - it consistently reduces divergence and improves top-p agreement with the bf16 base.
+KLD and same top-p are both monotonic in bit-width, and the imatrix (filled) beats no-imatrix (hollow) for every quant - it consistently reduces divergence and improves top-p agreement with the bf16 base. On the 35B, the MoE recipe (experts mxfp4, dense Q8_0) splits the difference: the mxfp4 experts cost +0.023 KLD over the Q8_0 ref, and downgrading the dense parts to mxfp4 adds another +0.040 on top.
 
 <details>
 <summary>Detail tables (PPL + size, full imatrix; pp/tg pending re-measure)</summary>
@@ -131,6 +131,7 @@ pp4096 / tg128 pending re-measurement on the fresh files.
 | q4ks | 0.0291 | 93.07 | 0.0433 | 91.42 |
 | iq4xs | 0.0300 | 92.99 | 0.0384 | 91.98 |
 | **mxfp4** | **0.0682** | **89.34** | 0.0878 | 87.92 |
+| **mxfp4 (MoE recipe)** | **0.0286** | **93.36** | - | - |
 | q4_0 | 0.0464 | 91.26 | 0.0559 | 90.31 |
 | q3ks | 0.1060 | 86.84 | 0.1515 | 84.14 |
 </details>
@@ -142,29 +143,29 @@ pp4096 / tg128 pending re-measurement on the fresh files.
 **KV cache type is a memory choice, not a speed one:** quantized KV (mxfp4) uses ~3-4x less memory than f16 at long context, while decode throughput is flat across all KV types.
 
 <details>
-<summary>Detail tables (KV cache; pp/tg pending re-measure)</summary>
+<summary>Detail tables (KV cache, GPU + CPU)</summary>
 
-KV cache memory (GiB) at 100k tokens, and GPU throughput (pp4096/tg128, --flash-attn 1), by KV type:
+KV cache memory (GiB) at 100k tokens, and throughput by KV type: GPU (2x RTX 5060 Ti @150W, Q4_1 weights, pp4096/tg128, --flash-attn 1) and CPU (pp512/tg32, 24 threads, --n-gpu-layers 0), -r 5:
 
-| model | KV | memory @100k | GPU pp4096 | GPU tg128 |
-|---|---|---:|---:|---:|
-| Qwen3.5-0.8B | f16 | 1.14 GiB | - | - |
-|  | q4_0 | 0.32 GiB | - | - |
-|  | q4_1 | 0.36 GiB | - | - |
-|  | q5_1 | 0.43 GiB | - | - |
-|  | **mxfp4** | **0.30 GiB** | - | - |
-| Qwen3.8-27B | f16 | 6.10 GiB | - | - |
-|  | q4_0 | 1.72 GiB | - | - |
-|  | q4_1 | 1.91 GiB | - | - |
-|  | q5_1 | 2.29 GiB | - | - |
-|  | **mxfp4** | **1.62 GiB** | - | - |
-| Qwen3.6-35B-A3B | f16 | 1.91 GiB | - | - |
-|  | q4_0 | 0.54 GiB | - | - |
-|  | q4_1 | 0.60 GiB | - | - |
-|  | q5_1 | 0.72 GiB | - | - |
-|  | **mxfp4** | **0.51 GiB** | - | - |
+| model | KV | memory @100k | GPU pp4096 | GPU tg128 | 285K pp512 | 285K tg32 | 9900X pp512 | 9900X tg32 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3.5-0.8B | f16 | 1.14 GiB | 19006.9 | 434.4 | 985.5 | 43.3 | 846.0 | 53.9 |
+|  | q4_0 | 0.32 GiB | 18738.0 | 411.2 | 949.8 | 38.3 | 825.6 | 52.9 |
+|  | q4_1 | 0.36 GiB | 18734.4 | 413.6 | 928.9 | 38.4 | 860.9 | 51.2 |
+|  | q5_1 | 0.43 GiB | 18772.1 | 414.7 | 869.6 | 42.7 | 265.8 | 50.1 |
+|  | **mxfp4** | **0.30 GiB** | 18737.8 | 412.9 | 850.1 | 39.4 | 371.3 | 51.3 |
+| Qwen3.8-27B | f16 | 6.10 GiB | 1461.1 | 42.6 | 45.7 | 3.0 | 49.9 | 2.2 |
+|  | q4_0 | 1.72 GiB | 1449.4 | 42.1 | 45.1 | 3.1 | 49.3 | 2.2 |
+|  | q4_1 | 1.91 GiB | 1445.7 | 42.1 | 45.2 | 3.4 | 51.1 | 2.4 |
+|  | q5_1 | 2.29 GiB | 1446.9 | 42.1 | 44.7 | 3.4 | 43.8 | 2.4 |
+|  | **mxfp4** | **1.62 GiB** | 1447.2 | 42.2 | 44.5 | 3.4 | 45.7 | 2.3 |
+| Qwen3.6-35B-A3B | f16 | 1.91 GiB | 3524.5 | 183.9 | 191.3 | 14.2 | 173.3 | 14.4 |
+|  | q4_0 | 0.54 GiB | 3496.9 | 178.7 | 187.2 | 14.3 | 158.5 | 14.3 |
+|  | q4_1 | 0.60 GiB | 3509.4 | 179.3 | 186.7 | 14.0 | 143.2 | 14.3 |
+|  | q5_1 | 0.72 GiB | 3508.9 | 179.1 | 180.6 | 14.3 | 129.6 | 14.0 |
+|  | **mxfp4** | **0.51 GiB** | 3494.9 | 179.1 | 174.8 | 14.4 | 130.7 | 14.5 |
 
-These are hybrid linear/full-attention models - full attention every 4 blocks, so only a fraction of layers grow the KV cache (0.8B: 6 of 24 layers; 27B: 16 of 64; 35B: 10 of 40; KV head dim 256); the sizes above reflect that. GPU pp4096 / tg128 pending re-measurement on the fresh files.
+These are hybrid linear/full-attention models - full attention every 4 blocks, so only a fraction of layers grow the KV cache (0.8B: 6 of 24 layers; 27B: 16 of 64; 35B: 10 of 40; KV head dim 256); the sizes above reflect that. The KV-type cost is consistent across weight quants (both the Q4_1 and mxfp4 weight files show a similar few-% slowdown vs f16); the 9900X is notably more sensitive to the Q5_1 KV, while mxfp4 stays close to f16 on both CPUs.
 
 </details>
 
