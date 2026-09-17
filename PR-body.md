@@ -2,7 +2,7 @@
 
 End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4A8 block-scaled mma for accuracy, imatrix-driven weight quantization, and an MXFP4 KV cache. Small and mighty at +641/-201 - mostly plumbing to complete the type across ggml quant/dequant, MMQ kernels, FA KV cache, and the llama ftype, plus tests.
 
-- **Dense ftype + KV cache** - `LLAMA_FTYPE_MOSTLY_MXFP4` =42; `-ctk/-ctv mxfp4` KV read directly by the FA vec kernel
+- **Dense ftype + KV cache** - `LLAMA_FTYPE_MOSTLY_MXFP4` =42; `--cache-type-k/--cache-type-v mxfp4` KV read directly by the FA vec kernel
 - **W4A8 matmul** - activations are intrinsic-quantized on Blackwell to e4m3 and prefill via the block-scaled `mxf8f6f4` mma (e2m1 x e4m3, scale_vec::1X) instead of W4A4 (e2m1 x e2m1). More accurate than the W4A4 path it replaces; the cost is prefill-only, decode is unchanged
 - **Scale selection** - measured-optimal e8m0 block scales: used existing fmax=4.0 for e2m1 weights and selected fmax=256 for e4m3 activations, both yielding better perplexity scores than the OCP spec's overflow-safe 6.0 and 448.0 by a wide margin. Optional `--imatrix` weight path picks the optimal per-block weight scale using the importance matrix
 
@@ -15,7 +15,7 @@ End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4
 
 <details>
 <summary>Detail tables</summary>
-W4A8 (this PR) vs W4A4 (baseline), same mxfp4 files, 2x 5060 Ti, `-ngl 999 -sm tensor -fa on`. The mxfp4 files load on master with an `unknown type mxfp4` metadata warning and route to the existing W4A4 mma. W4A8 (e4m3 activations) trades a prefill slowdown for a large accuracy win; decode is unchanged.
+W4A8 (this PR) vs W4A4 (baseline), same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers 999 --split-mode tensor --flash-attn on`. The mxfp4 files load on master with an `unknown type mxfp4` metadata warning and route to the existing W4A4 mma. W4A8 (e4m3 activations) trades a prefill slowdown for a large accuracy win; decode is unchanged.
 
 | model | file | PPL W4A4 | PPL W4A8 | pp4096 W4A4 | pp4096 W4A8 | tg128 W4A4 | tg128 W4A8 |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -133,7 +133,7 @@ pp4096 / tg128 pending re-measurement on the fresh files.
 | q3ks | 0.1060 | 86.84 | 0.1515 | 84.14 |
 </details>
 
-**KV cache (`-ctk/-ctv mxfp4`):**
+**KV cache (`--cache-type-k/--cache-type-v mxfp4`):**
 
 ![KV cache: memory + decode throughput by KV type](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
 
@@ -142,7 +142,7 @@ pp4096 / tg128 pending re-measurement on the fresh files.
 <details>
 <summary>Detail tables (KV cache; pp/tg pending re-measure)</summary>
 
-KV cache memory (GiB) at 100k tokens, and GPU throughput (pp4096/tg128, -fa 1), by KV type:
+KV cache memory (GiB) at 100k tokens, and GPU throughput (pp4096/tg128, --flash-attn 1), by KV type:
 
 | model | KV | memory @100k | GPU pp4096 | GPU tg128 |
 |---|---|---:|---:|---:|
@@ -201,14 +201,14 @@ Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations (W4A4
 
 | metric | tool | command flags |
 |---|---|---|
-| throughput (GPU) | `llama-bench` | `-ngl 999 -sm tensor -fa on -p 4096 -n 128 -r 5` |
-| throughput (CPU) | `llama-bench` | `-ngl 0 -t 24 -p 512 -n 32 -r 5` |
-| PPL vs BF16 | `llama-perplexity` | `-f wikitext-2 -ngl 999 -sm tensor -fa 1 -c 4096 -b 512` (72 chunks) |
-| KLD + same top-p vs BF16 | `llama-perplexity --kl-divergence` | `-f wikitext-2 -c 4096` against a dumped bf16 base (full corpus) |
+| throughput (GPU) | `llama-bench` | `--n-gpu-layers 999 --split-mode tensor --flash-attn on --n-prompt 4096 --n-predict 128 --n-repeat 5` |
+| throughput (CPU) | `llama-bench` | `--n-gpu-layers 0 --threads 24 --n-prompt 512 --n-predict 32 --n-repeat 5` |
+| PPL vs BF16 | `llama-perplexity` | `--file wikitext-2 --n-gpu-layers 999 --split-mode tensor --flash-attn 1 --context-size 4096 --batch-size 512` (72 chunks) |
+| KLD + same top-p vs BF16 | `llama-perplexity --kl-divergence` | `--file wikitext-2 --context-size 4096` against a dumped bf16 base (full corpus) |
 | imatrix weight quant | `llama-quantize --imatrix` | calibration perplexity run -> importance matrix; per-block weight-scale search around /4.0 |
 | weight RMSE | `llama-quantize` / `llama-bench` | vs the dequantized BF16 |
 
-Hardware: 2x RTX 5070 Ti (local) and 2x RTX 5060 Ti @150W (throttled 180W->150W); CPU: Intel Core Ultra 9 285K and AMD Ryzen 9 9900X (24 threads). All models are ggml-org; KLD and PPL are hardware-independent.
+Hardware: 2x RTX 5070 Ti (local) and 2x RTX 5060 Ti (throttled at 150/180W); CPU: Intel Core Ultra 9 285K and AMD Ryzen 9 9900X (24 threads). All models are ggml-org; KLD and PPL are hardware-independent.
 
 </details>
 
