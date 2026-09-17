@@ -149,9 +149,9 @@ def scatter_quant_points(ax, rows):
 def ppl_vs_size():
     fig, axgrid = new_figure(1, 3, w=5.4, h=4.3)
     for ax, (model, rows) in zip(axgrid, PPL.items()):
-        style_axes(ax, title=model, xlabel="file size (GB)", ylabel="PPL")
+        style_axes(ax, title=model, xlabel="file size (GB)", ylabel="PPL", xlog=True)
         scatter_quant_points(ax, rows)
-        ax.set_xlim(min(r[1] for r in rows) * 0.9, max(r[1] for r in rows) * 1.08)
+        ax.set_xlim(min(r[1] for r in rows) * 0.75, max(r[1] for r in rows) * 1.25)
         ymin, ymax = min(r[2] for r in rows), max(r[2] for r in rows)
         pad = (ymax - ymin) * 0.15
         ax.set_ylim(ymin - pad, ymax + pad)
