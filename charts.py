@@ -151,7 +151,9 @@ def ppl_vs_size():
     for ax, (model, rows) in zip(axgrid, PPL.items()):
         style_axes(ax, title=model, xlabel="file size (GB)", ylabel="PPL", xlog=True)
         scatter_quant_points(ax, rows)
-        ax.set_xlim(min(r[1] for r in rows) * 0.75, max(r[1] for r in rows) * 1.25)
+        ax.set_xlim(min(r[1] for r in rows) * 0.98, max(r[1] for r in rows) * 1.06)
+        from matplotlib.ticker import ScalarFormatter
+        ax.xaxis.set_major_formatter(ScalarFormatter())
         ymin, ymax = min(r[2] for r in rows), max(r[2] for r in rows)
         pad = (ymax - ymin) * 0.15
         ax.set_ylim(ymin - pad, ymax + pad)
@@ -187,6 +189,8 @@ def kv_cache():
         axt.bar_label(bt, fmt="%.1f", fontsize=7, color=PALETTE["text"], padding=2)
         axt.set_yscale("log")
         axt.set_ylim(min(d["tg"].values()) * 0.9, max(d["tg"].values()) * 1.08)
+        from matplotlib.ticker import ScalarFormatter
+        axt.yaxis.set_major_formatter(ScalarFormatter())
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
