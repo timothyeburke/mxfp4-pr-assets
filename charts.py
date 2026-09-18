@@ -67,6 +67,7 @@ def style_axes(ax, title=None, xlabel=None, ylabel=None, xlog=False):
         ax.set_ylabel(ylabel, fontsize=11, color=PALETTE["muted"])
     if xlog:
         ax.set_xscale("log")
+        ax.tick_params(which="minor", labelbottom=False, labelleft=False)
     return ax
 
 
@@ -199,6 +200,7 @@ def kv_cache():
         bt = axt.bar(KV_TYPES, [d["tg"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
         axt.bar_label(bt, fmt="%.1f", fontsize=7, color=PALETTE["text"], padding=2)
         axt.set_yscale("log")
+        axt.tick_params(which="minor", labelleft=False, labelbottom=False)
         axt.set_ylim(min(d["tg"].values()) * 0.9, max(d["tg"].values()) * 1.08)
         from matplotlib.ticker import FuncFormatter, MaxNLocator
         # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
@@ -311,6 +313,7 @@ def w4a8_vs_w4a4():
             ax[col].set_yscale("log")
             ax[col].yaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
             ax[col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
+            ax[col].tick_params(which="minor", labelleft=False, labelbottom=False)
         x = np.arange(len(models))
         w = 0.38
         v4 = [W4A[m][i4] for m in models]
