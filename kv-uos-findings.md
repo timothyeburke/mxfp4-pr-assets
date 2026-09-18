@@ -84,6 +84,51 @@ boundary (Qmax=7.25) is a safe default (never worse than e_base beyond noise),
 but its advantage is most visible on smaller models where the KV-cache
 quantization error dominates.
 
+## GPU round (2026-09-18, 2x RTX 5060 Ti) - DONE
+
+Same three-arm design, but everything runs on CUDA (branch build, 72 chunks vs the
+CUDA-recorded base .bin's, so the backend-noise floor is ~0). mxfp4-imx weight files
+are constant across arms (BF16 does not fit for 27B/35B on 2x 16 GB), so the
+weight-quant effect is included identically in every arm and the KV-cache effect is
+arm-to-arm: metric(arm) - metric(control). The build includes the W4A8 activation
+scale change (UOS Qmax=464); identical across arms, so the KV scale stays isolated.
+
+| model | arm     | Mean KLD | PPL(Q)  | PPL delta vs base | top-p % |
+|-------|---------|---------|---------|-------------------|---------|
+| 0.8B  | control | 0.149191| 16.1832| +1.0664           | 81.283  |
+| 0.8B  | uos     | 0.166515| 16.3692| +1.2525           | 80.194  |
+| 0.8B  | ebase   | 0.168857| 16.4249| +1.3081           | 79.992  |
+| 27B   | control | 0.089920|  6.3536| -0.0705           | 90.182  |
+| 27B   | uos     | 0.091820|  6.4157| -0.0083           | 89.929  |
+| 27B   | ebase   | 0.093152|  6.3974| -0.0267           | 89.939  |
+| 35B   | control | 0.068204|  5.9285| +0.1852           | 89.396  |
+| 35B   | uos     | 0.072918|  5.9504| +0.2072           | 88.921  |
+| 35B   | ebase   | 0.073220|  5.9521| +0.2089           | 88.908  |
+
+KV-cache effect (arm - control):
+
+| model | KLD effect uos | KLD effect ebase | UOS reduction | PPL effect uos | PPL effect ebase |
+|-------|---------------|-----------------|--------------|---------------|-----------------|
+| 0.8B  | 0.017324      | 0.019666        | 11.9%        | +0.1860       | +0.2417         |
+| 27B   | 0.001900      | 0.003232        | 41.2%        | +0.0622       | +0.0438         |
+| 35B   | 0.004714      | 0.005016        | 6.0%         | +0.0220        | +0.0237         |
+
+**GPU-round interpretation:**
+- UOS lowers the KV-cache KLD effect on all 3 models (11.9% / 41.2% / 6.0%),
+  consistent with the CPU round (10.9% on 0.8B).
+- 0.8B: UOS wins on PPL (23% smaller effect) and top-p (+0.20 pt) - the clear case.
+- 35B: UOS marginally better on PPL and top-p.
+- 27B: KLD clearly favors UOS (41%); PPL slightly favors e_base (+0.044 vs +0.062)
+  but the difference (0.018) is ~1.3x the combined std (~0.014) - within noise.
+- Cross-check: the 0.8B control PPL (16.1832) matches the earlier w4a8 0.8B-imx
+  PPL (16.1791) to 0.004 - the pipeline is consistent.
+
+Reproduce (GPU):
+- Build: build-mxfp8-act (CUDA, Release). ebase/control use the stock OCP e_base KV
+  scale; uos uses cpy-utils.cuh switched to UOS Qmax=7.25 (one-line change + rebuild).
+- Runs: logs/mxfp4-scale-search/kv-uos-gpu/{0.8b,27b,35b}-{control,uos,ebase}.log
+- Analysis: kv_uos_gpu_analysis.py; harness: scripts/kld-kv-uos-gpu.sh
+
 ## Reproduce
 - Build: build-mxfp4-kv-uos (CPU native, Release)
 - 0.8B runs: logs/mxfp4-scale-search/kv-uos/{control,uos,ebase}.log

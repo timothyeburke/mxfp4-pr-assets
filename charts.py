@@ -193,18 +193,21 @@ def ppl_vs_size():
 KV_TYPES = ["f16", "q4_0", "q4_1", "q5_1", "mxfp4"]
 KV = {
     "0.8B": {"mem": {"f16": 1.14, "q4_0": 0.32, "q4_1": 0.36, "q5_1": 0.43, "mxfp4": 0.30},
-             "tg":  {"f16": 434.4, "q4_0": 411.2, "q4_1": 413.6, "q5_1": 414.7, "mxfp4": 412.9}},
+             "tg":  {"f16": 434.4, "q4_0": 411.2, "q4_1": 413.6, "q5_1": 414.7, "mxfp4": 412.9},
+             "ppl": {"f16": 1.0000, "q4_0": 1.0123, "q4_1": 1.0099, "q5_1": 1.0021, "mxfp4": 1.0093}},
     "27B":  {"mem": {"f16": 6.10, "q4_0": 1.72, "q4_1": 1.91, "q5_1": 2.29, "mxfp4": 1.62},
-             "tg":  {"f16": 42.6, "q4_0": 42.1, "q4_1": 42.1, "q5_1": 42.1, "mxfp4": 42.2}},
+             "tg":  {"f16": 42.6, "q4_0": 42.1, "q4_1": 42.1, "q5_1": 42.1, "mxfp4": 42.2},
+             "ppl": {"f16": 1.0000, "q4_0": 1.0034, "q4_1": 1.0027, "q5_1": 1.0001, "mxfp4": 1.0081}},
     "35B":  {"mem": {"f16": 1.91, "q4_0": 0.54, "q4_1": 0.60, "q5_1": 0.72, "mxfp4": 0.51},
-             "tg":  {"f16": 183.9, "q4_0": 178.7, "q4_1": 179.3, "q5_1": 179.1, "mxfp4": 179.1}},
+             "tg":  {"f16": 183.9, "q4_0": 178.7, "q4_1": 179.3, "q5_1": 179.1, "mxfp4": 179.1},
+             "ppl": {"f16": 1.0000, "q4_0": 1.0023, "q4_1": 1.0023, "q5_1": 1.0002, "mxfp4": 1.0045}},
 }
 
 def kv_color(t):
     return PALETTE["mx"] if t == "mxfp4" else PALETTE["other"]
 
 def kv_cache():
-    fig, ax = new_figure(2, 3, w=5.0, h=3.5)
+    fig, ax = new_figure(4, 3, w=5.0, h=3.2)
     for col, (model, d) in enumerate(KV.items()):
         axm = ax[col]
         style_axes(axm, title=model, ylabel="KV mem (GiB @100k)" if col == 0 else None)
@@ -222,6 +225,17 @@ def kv_cache():
         # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
         axt.yaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
         axt.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
+        axp = ax[6 + col]
+        style_axes(axp, ylabel="PPL ratio vs f16 KV (20 chunks)" if col == 0 else None)
+        bp = axp.bar(KV_TYPES, [d["ppl"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
+        axp.bar_label(bp, fmt="%.4f", fontsize=7, color=PALETTE["text"], padding=2)
+        axp.set_ylim(0, max(d["ppl"].values()) * 1.22)
+        axu = ax[9 + col]
+        style_axes(axu, ylabel="KLD effect (mxfp4 KV - f16 KV)" if col == 0 else None)
+        eu, uu = KVUOS[model][0], KVUOS[model][1]
+        bu = axu.bar(["OCP e_base", "UOS 7.25"], [eu, uu], color=[PALETTE["other"], PALETTE["mx"]], width=0.5)
+        axu.bar_label(bu, fmt="%.6f", fontsize=7, color=PALETTE["text"], padding=2)
+        axu.set_ylim(0, max(eu, uu) * 1.22)
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
@@ -310,43 +324,109 @@ def kl_top_p():
     save(fig, "kl-top-p.png")
 
 # ------------------------------------------------------------------ W4A8 vs W4A4
-# (ppl_w4a4, ppl_w4a8, pp_w4a4, pp_w4a8, tg_w4a4, tg_w4a8) for the imx file
-W4A = {
-    "0.8B": (21.390, 16.179, 31911, 28500, 421.7, 421.6),
-    "27B":  (6.559, 6.357, 2029, 1488, 26.68, 26.66),
-    "35B":  (6.467, 5.933, 4941, 3683, 143.9, 143.8),
+# (ppl_w4a4, ppl_w4a8, pp_w4a4, pp_w4a8, tg_w4a4, tg_w4a8, kld_w4a4, kld_w4a8, topp_w4a4, topp_w4a8) for the imx file
+# PPL/pp/tg from the 2x 5060 Ti collection; KLD/top-p from the 72-chunk KLD round (same files, f16 KV)
+W4A5 = {
+    "0.8B": {"w4a4_old": (21.390, 0.407816, 69.972), "w4a4_uos": (20.044, 0.354800, 71.753),
+             "w4a8_256": (16.179, 0.149368, 81.280), "w4a8_343": (16.180, 0.149440, 81.243),
+             "w4a8_464": (16.183, 0.149191, 81.283)},
+    "27B":  {"w4a4_old": (6.559, 0.183153, 84.010), "w4a4_uos": (6.498, 0.182952, 84.523),
+             "w4a8_256": (6.357, 0.089655, 90.138), "w4a8_343": (6.363, 0.089431, 90.176),
+             "w4a8_464": (6.354, 0.089920, 90.182)},
+    "35B":  {"w4a4_old": (6.467, 0.169050, 82.510), "w4a4_uos": (6.346, 0.149619, 83.785),
+             "w4a8_256": (5.933, 0.068153, 89.276), "w4a8_343": (5.930, 0.068055, 89.301),
+             "w4a8_464": (5.929, 0.068204, 89.396)},
 }
 
+# (pp4096, tg128) t/s; a scale variant does not change speed (same kernels)
+W4A_SPD = {
+    "0.8B": {"w4a4": (31911, 421.7), "w4a8": (28500, 421.6)},
+    "27B":  {"w4a4": (2029, 26.68), "w4a8": (1488, 26.66)},
+    "35B":  {"w4a4": (4941, 143.9), "w4a8": (3683, 143.8)},
+}
+W4A_SERIES = ["w4a4_old", "w4a4_uos", "w4a8_256", "w4a8_343", "w4a8_464"]
+W4A_STYLE = {"w4a4_old": (PALETTE["other"], None), "w4a4_uos": (PALETTE["other"], "//"),
+             "w4a8_256": (PALETTE["mx"], None), "w4a8_343": (PALETTE["mx"], "//"),
+             "w4a8_464": ("#A8D44E", None)}
+W4A_LABEL = {"w4a4_old": "W4A4 (old scale)", "w4a4_uos": "W4A4 (UOS 7.25)",
+             "w4a8_256": "W4A8 (256, shipped)", "w4a8_343": "W4A8 (UOS 343)",
+             "w4a8_464": "W4A8 (UOS 464)"}
+
+# ------------------------------------------------------------------ UOS vs e_base KV cache
+# (kld_eff_ebase, kld_eff_uos, ppl_eff_ebase, ppl_eff_uos, topp_loss_ebase, topp_loss_uos) per model
+# KV-cache effect = metric(mxfp4-KV arm) - metric(f16-KV control), mxfp4-imx weights, GPU round
+KVUOS = {
+    "0.8B": (0.019666, 0.017324, 0.2417, 0.1860, 1.291, 1.089),
+    "27B":  (0.003232, 0.001900, 0.0438, 0.0622, 0.243, 0.253),
+    "35B":  (0.005016, 0.004714, 0.0237, 0.0220, 0.488, 0.475),
+}
+
+
 def w4a8_vs_w4a4():
-    fig, ax = new_figure(1, 3, w=4.6, h=3.6)
-    panels = [("Mean PPL (lower is better)", 0, 1, False, None),
-              ("prefill pp4096 (t/s)", 2, 3, True, [1000, 2000, 3000, 5000, 10000, 20000, 40000]),
-              ("decode tg128 (t/s)", 4, 5, True, [25, 50, 75, 100, 150, 200, 300, 400, 600])]
-    models = list(W4A.keys())
-    for col, (title, i4, i8, logy, yticks) in enumerate(panels):
+    fig, ax = new_figure(2, 3, w=4.6, h=3.6)
+    models = list(W4A5.keys())
+    acc = [("Mean PPL (lower is better)", 0),
+           ("Mean KLD vs BF16 base (lower is better)", 1),
+           ("Same top-p % (higher is better)", 2)]
+    for col, (title, idx) in enumerate(acc):
         style_axes(ax[col], title=title)
-        if logy:
-            from matplotlib.ticker import FuncFormatter
-            ax[col].set_yscale("log")
-            ax[col].set_yticks(yticks)
-            ax[col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
-            ax[col].tick_params(which="minor", labelleft=False, labelbottom=False)
+        x = np.arange(len(models))
+        w = 0.185
+        for si, s in enumerate(W4A_SERIES):
+            off = (si - 2) * w
+            v = [W4A5[m][s][idx] for m in models]
+            c, h = W4A_STYLE[s]
+            ax[col].bar(x + off, v, width=w, color=c, hatch=h, label=W4A_LABEL[s],
+                        edgecolor="white", linewidth=0.4)
+        ax[col].set_xticks(x); ax[col].set_xticklabels(models)
+        ax[col].set_ylim(0, max(W4A5[m][s][idx] for m in models for s in W4A_SERIES) * 1.18)
+        ax[col].legend(frameon=False, fontsize=6.5, loc="upper right", ncol=2)
+    ax[5].set_visible(False)
+    spd = [("prefill pp4096 (t/s)", 0, [1000, 2000, 3000, 5000, 10000, 20000, 40000]),
+           ("decode tg128 (t/s)", 1, [25, 50, 75, 100, 150, 200, 300, 400, 600])]
+    for col, (title, i, yticks) in enumerate(spd):
+        style_axes(ax[3 + col], title=title)
+        ax[3 + col].set_yscale("log")
+        from matplotlib.ticker import FuncFormatter
+        ax[3 + col].set_yticks(yticks)
+        ax[3 + col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
+        ax[3 + col].tick_params(which="minor", labelleft=False, labelbottom=False)
         x = np.arange(len(models))
         w = 0.38
-        v4 = [W4A[m][i4] for m in models]
-        v8 = [W4A[m][i8] for m in models]
-        ax[col].bar(x - w/2, v4, width=w, color=PALETTE["other"], label="W4A4 (master)")
-        ax[col].bar(x + w/2, v8, width=w, color=PALETTE["mx"], label="W4A8 (branch)")
-        ax[col].set_xticks(x); ax[col].set_xticklabels(models)
+        v4 = [W4A_SPD[m]["w4a4"][i] for m in models]
+        v8 = [W4A_SPD[m]["w4a8"][i] for m in models]
+        ax[3 + col].bar(x - w/2, v4, width=w, color=PALETTE["other"], label="W4A4")
+        ax[3 + col].bar(x + w/2, v8, width=w, color=PALETTE["mx"], label="W4A8")
+        ax[3 + col].set_xticks(x); ax[3 + col].set_xticklabels(models)
         for xi, (a, b) in enumerate(zip(v4, v8)):
+            ax[3 + col].text(xi - w/2, a, f"{a:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["muted"])
+            ax[3 + col].text(xi + w/2, b, f"{b:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["text"])
+        ax[3 + col].set_ylim(min(v4 + v8) * 0.6, max(v4 + v8) * 1.6)
+        ax[3 + col].legend(frameon=False, fontsize=7, loc="upper right", ncol=1)
+    save(fig, "w4a8-vs-w4a4.png")
+
+def kv_uos():
+    fig, ax = new_figure(1, 3, w=4.6, h=3.6)
+    panels = [("KLD effect (lower is better)", 0, 1, 4, 5),
+              ("PPL effect (lower is better)", 2, 3, 4, 5),
+              ("top-p loss, pt (lower is better)", 4, 5, 4, 5)]
+    models = list(KVUOS.keys())
+    for col, (title, ie, iu, _, _) in enumerate(panels):
+        style_axes(ax[col], title=title)
+        x = np.arange(len(models))
+        w = 0.38
+        ve = [KVUOS[m][ie] for m in models]
+        vu = [KVUOS[m][iu] for m in models]
+        ax[col].bar(x - w/2, ve, width=w, color=PALETTE["other"], label="OCP e_base")
+        ax[col].bar(x + w/2, vu, width=w, color=PALETTE["mx"], label="UOS Qmax=7.25")
+        ax[col].set_xticks(x); ax[col].set_xticklabels(models)
+        for xi, (a, b) in enumerate(zip(ve, vu)):
             ax[col].text(xi - w/2, a, f"{a:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["muted"])
             ax[col].text(xi + w/2, b, f"{b:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["text"])
-        if logy:
-            ax[col].set_ylim(min(v4 + v8) * 0.6, max(v4 + v8) * 1.6)
-        else:
-            ax[col].set_ylim(0, max(v4 + v8) * 1.18)
+        ax[col].set_ylim(0, max(ve + vu) * 1.18)
         ax[col].legend(frameon=False, fontsize=7, loc="upper right", ncol=1)
-    save(fig, "w4a8-vs-w4a4.png")
+    save(fig, "kv-uos-vs-ebase.png")
+
 
 
 if __name__ == "__main__":
@@ -358,5 +438,7 @@ if __name__ == "__main__":
         kv_cache()
     if which in ("all", "kl"):
         kl_top_p()
+    if which in ("all", "kvuos"):
+        kv_uos()
     if which in ("all", "w4a8"):
         w4a8_vs_w4a4()
