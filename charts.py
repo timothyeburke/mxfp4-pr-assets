@@ -274,7 +274,7 @@ def _plot_kl_panel(ax, d, key, order, ymin0=False):
     ax.bar(imx_x, imx_vals, width=w, color=cols, zorder=3)
     if noimx_vals:
         ax.bar(noimx_x, noimx_vals, width=w, color="none", hatch="//", edgecolor=nocols, linewidth=1.0, zorder=3)
-    ax.set_xticks(xs); ax.set_xticklabels(order, fontsize=8, rotation=90, ha="left")
+    ax.set_xticks(xs); ax.set_xticklabels(order, fontsize=8, rotation=-90, ha="left")
     ax.set_xlim(-0.6, len(order) - 0.4)
     ys = imx_vals + [v for v in noimx_vals if v is not None]
     ymin, ymax = (0.0 if ymin0 else min(ys)), max(ys)
