@@ -162,17 +162,26 @@ def main() -> None:
 
     # ---- collect target tensors ------------------------------------------
     targets = []
+    n_skipped_3d = 0
     for t in model.tensors:
         shape = [int(x) for x in t.shape]
         if len(shape) < 2:
             continue  # 1D (norms) are not quantized
-        n_per_row = shape[0]  # ggml ne[0] == first gguf dim (verified vs imatrix size check)
-        if n_per_row % 32 != 0:
+        if len(shape) > 2:
+            # 3D MoE expert tensors: imatrix is a 2D [in, n_experts] array; the
+            # block/weight layout differs from the 2D case. Handled in a follow-up.
+            n_skipped_3d += 1
             continue
         if t.name not in weights:
             print(f"  skip {t.name}: no imatrix entry")
             continue
+        n_per_row = len(weights[t.name])  # imatrix flat length == per-input-element dim
+        if n_per_row % 32 != 0:
+            print(f"  skip {t.name}: imatrix len {n_per_row} not % 32")
+            continue
         targets.append((t, n_per_row, weights[t.name]))
+    if n_skipped_3d:
+        print(f"skipped {n_skipped_3d} 3D MoE expert tensors (follow-up)")
     print(f"target tensors: {len(targets)}")
 
     # ---- sample blocks + compute -----------------------------------------
