@@ -5,7 +5,7 @@ End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4
 - **Dense ftype + KV cache** - `LLAMA_FTYPE_MOSTLY_MXFP4` =42; `--cache-type-k/--cache-type-v mxfp4` KV read directly by the FA vec kernel
 - **W4A8 matmul** - activations are intrinsic-quantized on Blackwell to e4m3 and prefill via the block-scaled `mxf8f6f4` mma (e2m1 x e4m3, scale_vec::1X) instead of W4A4 (e2m1 x e2m1). More accurate than the W4A4 path it replaces; the cost is prefill-only, decode is unchanged
 - **Scale selection** - measured-optimal e8m0 block scales: used existing fmax=4.0 for e2m1 weights and selected fmax=256 for e4m3 activations, both yielding better perplexity scores than the OCP spec's overflow-safe 6.0 and 448.0 by a wide margin. Optional `--imatrix` weight path picks the optimal per-block weight scale using the importance matrix
-- **KV cache scale (UOS)** - the mxfp4 KV-cache scale boundary follows the MXAttention Universal Optimal Scaling (Qmax=7.25, data-free, arXiv 2607.24377) instead of the OCP e_base: the measured KV-cache quantization effect is 12%/41%/6% lower (KLD) on 0.8B/27B/35B. Opt-in via `GGML_MXFP4_UOS=1`; weights keep the imatrix-weighted scale search
+- **KV cache scale (UOS)** - the mxfp4 KV-cache scale boundary follows the MXAttention Universal Optimal Scaling (Qmax=7.25, data-free, arXiv 2607.24377) instead of the OCP e_base: the measured KV-cache quantization effect is 12%/41%/6% lower (KLD) on 0.8B/27B/35B. Default for the mxfp4 KV cache; the weight path (imatrix-weighted scale search) is unchanged
 
 
 ## Results
@@ -198,7 +198,7 @@ These are hybrid linear/full-attention models - full attention every 4 blocks, s
 
 ![UOS vs e_base KV-cache effect](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-uos-vs-ebase.png)
 
-The e8m0 KV-cache scale boundary stepped in from the format max (Qmax=7.25, the distribution-independent optimum from MXAttention, arXiv 2607.24377) instead of the OCP e_base (block max pinned at ~4.0, never clips): the KV-cache quantization effect (mxfp4-KV minus f16-KV, mxfp4 weights, 72 chunks) is lower with UOS on all 3 models - KLD 12%/41%/6% lower on 0.8B/27B/35B, and on 0.8B a 23% smaller PPL effect and +0.20 pt top-p. Opt-in via `GGML_MXFP4_UOS=1`; the weight path (imatrix-weighted scale search) is unchanged.
+The e8m0 KV-cache scale boundary stepped in from the format max (Qmax=7.25, the distribution-independent optimum from MXAttention, arXiv 2607.24377) instead of the OCP e_base (block max pinned at ~4.0, never clips): the KV-cache quantization effect (mxfp4-KV minus f16-KV, mxfp4 weights, 72 chunks) is lower with UOS on all 3 models - KLD 12%/41%/6% lower on 0.8B/27B/35B, and on 0.8B a 23% smaller PPL effect and +0.20 pt top-p. This is the default for the mxfp4 KV cache; the weight path (imatrix-weighted scale search) is unchanged.
 
 <details>
 <summary>Detail table (KV-cache scale, 72-chunk KLD vs the CUDA-recorded BF16 base)</summary>
@@ -234,7 +234,7 @@ The e8m0 block scale is the standard power-of-two formula, `round_to_pow2(amax /
 - **e2m1 (weight and KV cache): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value. A flat PPL plateau from ~3-5 with a cliff above 5. 27B: 6.44 at /4.0 vs 6.69 at the spec; 35B: 5.997 vs 6.42.
 - **e4m3 (activation): C = 256** (the e4m3 max is 448). A plateau across ~128-256, then a cliff past ~320 (where the grid becomes too coarse to be worth the dynamic range) - the same stepped-in optimum as the weight. 27B: 6.32 at /256 vs 6.69 at the spec's /448.
 
-**KV cache (opt-in, UOS).** For the KV cache only, the boundary can follow the MXAttention Universal Optimal Scaling instead: a distribution-independent Qmax that minimizes the expected block error without calibration (arXiv 2607.24377). For e2m1 the optimum is Qmax=7.25 (verified numerically); it raises the boundary above the e_base pin so the very top values may clip slightly in exchange for far less underflow of the bulk of the block - which dominates the expected block error. Measured (72-chunk KLD, mxfp4 weights): the KV-cache effect is 12%/41%/6% lower (0.8B/27B/35B); the weight path is unaffected. Verified: E4M3 (activation) Qmax=464 sits at the top of a flat-optimal band [343, 464].
+**KV cache (UOS, default).** For the KV cache, the boundary follows the MXAttention Universal Optimal Scaling: a distribution-independent Qmax that minimizes the expected block error without calibration (arXiv 2607.24377). For e2m1 the optimum is Qmax=7.25 (verified numerically); it raises the boundary above the e_base pin so the very top values may clip slightly in exchange for far less underflow of the bulk of the block - which dominates the expected block error. Measured (72-chunk KLD, mxfp4 weights): the KV-cache effect is 12%/41%/6% lower (0.8B/27B/35B); the weight path is unaffected. Verified: E4M3 (activation) Qmax=464 sits at the top of a flat-optimal band [343, 464].
 
 
 A single-pass "pick the scale that minimizes output error" (the natural per-layer optimum) is a *worse* default: because the e8m0 scale is a power of two, the per-tensor optimum lands at a different scale than the one that generalizes, and it measured worse (6.5586 vs 6.32 on the 27B). The fixed stepped-in scales are the robust choice.

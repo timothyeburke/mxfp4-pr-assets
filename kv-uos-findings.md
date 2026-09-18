@@ -134,3 +134,24 @@ Reproduce (GPU):
 - 0.8B runs: logs/mxfp4-scale-search/kv-uos/{control,uos,ebase}.log
 - 35B runs: logs/mxfp4-scale-search/kv-uos-35b/{control,uos,ebase}.log
 - Analysis: kv_uos_kld_analysis.py
+
+## Status (2026-09-18)
+UOS is now the DEFAULT mxfp4 KV-cache scale (the GGML_MXFP4_UOS opt-in was
+removed; see the branch's final form). Weights keep the imatrix-weighted scale
+search (OCP 4.0 pin); mxfp8 activations keep fmax=256 (the 256-464 band is
+flat). Re-verified after the change: 0.8B GPU default KLD 0.166635 vs the
+earlier uos arm 0.166515 (within 1 sigma); CPU parity run vs the CPU round
+(0.020220) in logs/mxfp4-scale-search/kv-uos-default/.
+## CPU verification of the default (2026-09-18, continued)
+After the opt-in was removed, the new build (build-mxfp8-act) was re-verified
+on CPU (ngl 0) and GPU with the mxfp4-imx 0.8B file, 72 chunks, no env vars:
+- weight floor (f16 KV): CPU 0.149358 / GPU 0.149191 (0.2 sigma)
+- mxfp4 KV (UOS default): CPU 0.1666 / GPU 0.1665; KV effect 0.0173 on both
+- BF16 control (ngl 0): KLD 0.000000, top-p 99.997
+
+This also explains the original "CPU round" above: its control KLD was
+0.000050 (a near-BF16 floor, reproduced within noise by the run above), so
+it measured the PURE KV-cache effect on BF16-class weights (uos 0.0202 vs
+ebase 0.0227). It is a valid A/B in itself, but its absolute numbers are not
+comparable to the mxfp4-weight rounds (floor 0.149). The UOS-vs-ebase ratio
+is consistent across rounds (11.0% on 0.8B CPU-BF16 vs 11.9% on 0.8B GPU).
