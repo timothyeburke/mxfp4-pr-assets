@@ -21,11 +21,11 @@ def parse(name):
     txt = open(p).read()
     # find the "Mean KLD" / "Mean PPL" summary lines (the final aggregate)
     kld = ppl = topp = None
-    for m in re.finditer(r"Mean\s+KLD\s+([0-9.]+)", txt):
+    for m in re.finditer(r"Mean\s+KLD\s*:\s*([0-9.]+)", txt):
         kld = float(m.group(1))
-    for m in re.finditer(r"Mean PPL\((?:Q|base)\)\s+([0-9.]+)", txt):
-        ppl = float(m.group(1))  # last one wins (Q is usually last)
-    for m in re.finditer(r"Same top p\s+([0-9.]+)", txt):
+    for m in re.finditer(r"Mean PPL\(Q\)\s*:\s*([0-9.]+)", txt):
+        ppl = float(m.group(1))
+    for m in re.finditer(r"Same top p\s*:\s*([0-9.]+)", txt):
         topp = float(m.group(1))
     # also grab the per-chunk KLD mean (the "Mean KLD" may be labeled differently)
     if kld is None:
