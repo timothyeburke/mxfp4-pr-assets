@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
+import math
 import os
 
 OUT = os.path.dirname(os.path.abspath(__file__))
@@ -144,6 +145,9 @@ def scatter_quant_points(ax, rows):
         ax.scatter([size], [imx], s=s, c=col, marker=marker, zorder=5, edgecolors="white", linewidths=0.8)
         if noimx is not None:
             ax.scatter([size], [noimx], s=s, facecolors="none", edgecolors=col, linewidths=1.6, marker=marker, zorder=4)
+            ax.annotate(disp, (size, noimx), textcoords="offset points", xytext=(-7, 0),
+                        fontsize=7, color=(PALETTE["mx"] if is_mx else PALETTE["muted"]),
+                        ha="right", va="center", zorder=6)
         ax.annotate(disp, (size, imx), textcoords="offset points", xytext=(7, 0),
                     fontsize=7, color=(PALETTE["mx"] if is_mx else PALETTE["muted"]),
                     ha="left", va="center", zorder=6)
@@ -152,7 +156,7 @@ def scatter_quant_points(ax, rows):
         items.append(Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4_moe"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["other"], label="3/4/5-bit family"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec=PALETTE["other"], mfc="none", label="no imatrix"))
-    items.append(Line2D([0], [0], color=PALETTE["muted"], ls="--", lw=1.2, label="bf16 (ref)"))
+    items.append(Line2D([0], [0], color="#C8CFD8", ls="--", lw=1.2, alpha=0.6, label="bf16 (ref)"))
     ax.legend(handles=items, loc="upper right", frameon=False, fontsize=8, ncol=1, handlelength=1.4, borderaxespad=0.5)
     return
 
@@ -165,16 +169,20 @@ def ppl_vs_size():
         scatter_quant_points(ax, plot_rows)
         bf16 = next((r[2] for r in rows if r[0] == "bf16"), None)
         if bf16 is not None:
-            ax.axhline(bf16, color=PALETTE["muted"], linestyle="--", linewidth=1.2, zorder=2)
+            ax.axhline(bf16, color="#C8CFD8", linestyle="--", linewidth=1.2, alpha=0.6, zorder=2)
         ax.set_xlim(min(r[1] for r in plot_rows) * 0.98, max(r[1] for r in plot_rows) * 1.06)
         from matplotlib.ticker import FuncFormatter, MaxNLocator
         # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
         ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.1f}" if v < 10 else f"{v:.0f}"))
-        ppls = [r[2] for r in plot_rows]
-        ymin, ymax = min(ppls), max(ppls)
+        allvals = [r[2] for r in plot_rows] + [r[3] for r in plot_rows if r[3] is not None]
+        ymin, ymax = min(allvals), max(allvals)
         pad = (ymax - ymin) * 0.15
-        ax.set_ylim(ymin - pad, ymax)
+        # round the top up to the next 0.1 so no dot sits on (or above) the axis edge
+        top = math.ceil(ymax * 10 - 1e-9) / 10
+        if top <= ymax + 1e-9:
+            top += 0.1
+        ax.set_ylim(ymin - pad, top)
     save(fig, "ppl-vs-size.png")
     return
 
