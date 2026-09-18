@@ -74,12 +74,21 @@ def legend_items(ax, items, **kw):
     ax.legend(handles=items, **kw)
 
 
+def print_tick_labels(fig):
+    """Debug: print the tick labels exactly as rendered, per axis."""
+    fig.canvas.draw()
+    for i, ax in enumerate(fig.get_axes()):
+        xl = [t.get_text() for t in ax.get_xticklabels()]
+        yl = [t.get_text() for t in ax.get_yticklabels()]
+        print(f"  [axis {i}] x={xl} y={yl}")
+
+
 def save(fig, name):
+    print_tick_labels(fig)
     path = os.path.join(OUT, name)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote", path)
-
 
 # ------------------------------------------------------------------ data
 # fresh full-imatrix, all-chunks. (type, size_GB, imx_ppl, no_imx_ppl or None, is_ref)
@@ -298,7 +307,10 @@ def w4a8_vs_w4a4():
     for col, (title, i4, i8, logy) in enumerate(panels):
         style_axes(ax[col], title=title)
         if logy:
+            from matplotlib.ticker import FuncFormatter, MaxNLocator
             ax[col].set_yscale("log")
+            ax[col].yaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
+            ax[col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
         x = np.arange(len(models))
         w = 0.38
         v4 = [W4A[m][i4] for m in models]
