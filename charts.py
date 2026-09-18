@@ -152,6 +152,7 @@ def scatter_quant_points(ax, rows):
         items.append(Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4_moe"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["other"], label="3/4/5-bit family"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec=PALETTE["other"], mfc="none", label="no imatrix"))
+    items.append(Line2D([0], [0], color=PALETTE["muted"], ls="--", lw=1.2, label="bf16 (ref)"))
     ax.legend(handles=items, loc="upper right", frameon=False, fontsize=8, ncol=1, handlelength=1.4, borderaxespad=0.5)
     return
 
@@ -160,15 +161,20 @@ def ppl_vs_size():
     fig, axgrid = new_figure(1, 3, w=5.4, h=4.3)
     for ax, (model, rows) in zip(axgrid, PPL.items()):
         style_axes(ax, title=model, xlabel="file size (GB)", ylabel="PPL", xlog=True)
-        scatter_quant_points(ax, rows)
-        ax.set_xlim(min(r[1] for r in rows) * 0.98, max(r[1] for r in rows) * 1.06)
+        plot_rows = [r for r in rows if r[0] not in ("bf16", "q3ks")]
+        scatter_quant_points(ax, plot_rows)
+        bf16 = next((r[2] for r in rows if r[0] == "bf16"), None)
+        if bf16 is not None:
+            ax.axhline(bf16, color=PALETTE["muted"], linestyle="--", linewidth=1.2, zorder=2)
+        ax.set_xlim(min(r[1] for r in plot_rows) * 0.98, max(r[1] for r in plot_rows) * 1.06)
         from matplotlib.ticker import FuncFormatter, MaxNLocator
         # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
         ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.1f}" if v < 10 else f"{v:.0f}"))
-        ymin, ymax = min(r[2] for r in rows), max(r[2] for r in rows)
+        ppls = [r[2] for r in plot_rows]
+        ymin, ymax = min(ppls), max(ppls)
         pad = (ymax - ymin) * 0.15
-        ax.set_ylim(ymin - pad, ymax + pad)
+        ax.set_ylim(ymin - pad, ymax)
     save(fig, "ppl-vs-size.png")
     return
 
@@ -254,12 +260,12 @@ def _kl_color(q):
     return PALETTE["mx"] if q in ("mxfp4", "mxfp4_moe") else PALETTE["other"]
 
 
-def _plot_kl_panel(ax, d, key, ymin0=False):
-    xs = np.arange(len(KL_ORDER))
+def _plot_kl_panel(ax, d, key, order, ymin0=False):
+    xs = np.arange(len(order))
     w = 0.4
     imx_x, imx_vals, cols = [], [], []
     noimx_x, noimx_vals, nocols = [], [], []
-    for i, q in enumerate(KL_ORDER):
+    for i, q in enumerate(order):
         ik, it, pk, pt = d[q]
         if ik is not None or it is not None:
             imx_x.append(i - w/2); imx_vals.append(ik if key == "kld" else it); cols.append(_kl_color(q))
@@ -268,8 +274,8 @@ def _plot_kl_panel(ax, d, key, ymin0=False):
     ax.bar(imx_x, imx_vals, width=w, color=cols, zorder=3)
     if noimx_vals:
         ax.bar(noimx_x, noimx_vals, width=w, color="none", hatch="//", edgecolor=nocols, linewidth=1.0, zorder=3)
-    ax.set_xticks(xs); ax.set_xticklabels(KL_ORDER, fontsize=8)
-    ax.set_xlim(-0.6, len(KL_ORDER) - 0.4)
+    ax.set_xticks(xs); ax.set_xticklabels(order, fontsize=8, rotation=90, ha="left")
+    ax.set_xlim(-0.6, len(order) - 0.4)
     ys = imx_vals + [v for v in noimx_vals if v is not None]
     ymin, ymax = (0.0 if ymin0 else min(ys)), max(ys)
     pad = (ymax - ymin) * 0.18
@@ -278,10 +284,11 @@ def _plot_kl_panel(ax, d, key, ymin0=False):
 def kl_top_p():
     fig, ax = new_figure(2, 3, w=5.0, h=3.6)
     for col, (model, d) in enumerate(KL.items()):
+        order = [q for q in KL_ORDER if any(v is not None for v in d[q])]
         style_axes(ax[col], title=model, ylabel="Mean KLD (lower is better)")
-        _plot_kl_panel(ax[col], d, "kld", ymin0=True)
+        _plot_kl_panel(ax[col], d, "kld", order, ymin0=True)
         style_axes(ax[3 + col], ylabel="Same top-p % (higher is better)")
-        _plot_kl_panel(ax[3 + col], d, "topp")
+        _plot_kl_panel(ax[3 + col], d, "topp", order)
     from matplotlib.patches import Patch
     handles = [
         Patch(facecolor=PALETTE["mx"], edgecolor="white", label="mxfp4 (imatrix)"),
@@ -302,16 +309,16 @@ W4A = {
 
 def w4a8_vs_w4a4():
     fig, ax = new_figure(1, 3, w=4.6, h=3.6)
-    panels = [("Mean PPL (lower is better)", 0, 1, False),
-              ("prefill pp4096 (t/s)", 2, 3, True),
-              ("decode tg128 (t/s)", 4, 5, True)]
+    panels = [("Mean PPL (lower is better)", 0, 1, False, None),
+              ("prefill pp4096 (t/s)", 2, 3, True, [1000, 5000, 10000, 20000, 40000]),
+              ("decode tg128 (t/s)", 4, 5, True, [50, 100, 150, 200, 400, 600])]
     models = list(W4A.keys())
-    for col, (title, i4, i8, logy) in enumerate(panels):
+    for col, (title, i4, i8, logy, yticks) in enumerate(panels):
         style_axes(ax[col], title=title)
         if logy:
-            from matplotlib.ticker import FuncFormatter, MaxNLocator
+            from matplotlib.ticker import FuncFormatter
             ax[col].set_yscale("log")
-            ax[col].yaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
+            ax[col].set_yticks(yticks)
             ax[col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
             ax[col].tick_params(which="minor", labelleft=False, labelbottom=False)
         x = np.arange(len(models))
