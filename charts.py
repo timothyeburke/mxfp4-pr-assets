@@ -156,7 +156,7 @@ def scatter_quant_points(ax, rows):
         items.append(Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4_moe"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["other"], label="3/4/5-bit family"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec=PALETTE["other"], mfc="none", label="no imatrix"))
-    items.append(Line2D([0], [0], color="#C8CFD8", ls="--", lw=1.2, alpha=0.6, label="bf16 (ref)"))
+    items.append(Line2D([0], [0], color="#000000", ls="--", lw=1.2, alpha=0.1, label="bf16 (ref)"))
     ax.legend(handles=items, loc="upper right", frameon=False, fontsize=8, ncol=1, handlelength=1.4, borderaxespad=0.5)
     return
 
@@ -169,7 +169,7 @@ def ppl_vs_size():
         scatter_quant_points(ax, plot_rows)
         bf16 = next((r[2] for r in rows if r[0] == "bf16"), None)
         if bf16 is not None:
-            ax.axhline(bf16, color="#C8CFD8", linestyle="--", linewidth=1.2, alpha=0.6, zorder=2)
+            ax.axhline(bf16, color="#000000", linestyle="--", linewidth=1.2, alpha=0.1, zorder=2)
         ax.set_xlim(min(r[1] for r in plot_rows) * 0.98, max(r[1] for r in plot_rows) * 1.06)
         from matplotlib.ticker import FuncFormatter, MaxNLocator
         # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
