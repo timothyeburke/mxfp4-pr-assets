@@ -211,7 +211,7 @@ mxfp4-imx weights, 2x RTX 5060 Ti; KV-cache effect = arm - control (f16 KV). KLD
 | 27B | 0.089920 / 6.3536 / 90.18 | 0.093152 / 6.3974 / 89.94 | 0.091820 / 6.4157 / 89.93 | 41.2% |
 | 35B | 0.068204 / 5.9285 / 89.40 | 0.073220 / 5.9521 / 88.91 | 0.072918 / 5.9504 / 88.92 | 6.0% |
 
-A CPU 72-chunk round (BF16 weights, 0.8B/35B) shows the same direction: UOS 10.9% lower KLD on 0.8B, marginal on 35B - see the findings doc for the run-to-run std.
+A CPU 72-chunk round (BF16 weights, 0.8B/35B) shows the same direction: UOS 10.9% lower KLD on 0.8B, marginal on 35B - see the findings doc for the run-to-run std. After the opt-in was removed, the default was re-verified on both backends (mxfp4-imx 0.8B, 72 chunks, no env vars): weight floor 0.1494 (CPU) / 0.1492 (GPU) and KV effect 0.0173 on both, with a BF16 CPU control at KLD 0.000000.
 
 </details>
 
@@ -229,10 +229,12 @@ Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations; its 
 
 ### Scale selection: e8m0 scales stepped in from the format max, plus the optional imatrix weight path
 
-The e8m0 block scale is the standard power-of-two formula, `round_to_pow2(amax / C)`, where C is stepped in from the format's max (the mantissa's largest code), so the block's largest value maps inside the representable range instead of onto its edge. The e2m1 weight uses the codebase's existing C = 4.0 (stepped in from the e2m1 max of 6.0); we found a similar benefit for the e4m3 activation, with a plateau and a cliff past ~320, suggesting the optimum is stepped in from the max for values in range for attention:
+The e8m0 block scale is the standard power-of-two formula, `round_to_pow2(amax / C)`, where C is stepped in from the format's max (the mantissa's largest code), so the block's largest value maps inside the representable range instead of onto its edge. The e2m1 weight uses the codebase's existing C = 4.0 (stepped in from the e2m1 max of 6.0); we found a similar benefit for the e4m3 activation, suggesting the optimum is stepped in from the max for values in range for attention:
 
-- **e2m1 (weight and KV cache): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value. A flat PPL plateau from ~3-5 with a cliff above 5. 27B: 6.44 at /4.0 vs 6.69 at the spec; 35B: 5.997 vs 6.42.
-- **e4m3 (activation): C = 256** (the e4m3 max is 448). A plateau across ~128-256, then a cliff past ~320 (where the grid becomes too coarse to be worth the dynamic range) - the same stepped-in optimum as the weight. 27B: 6.32 at /256 vs 6.69 at the spec's /448.
+- **e2m1 (weight): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value. A flat PPL plateau from ~3-5 with a cliff above 5. 27B: 6.44 at /4.0 vs 6.69 at the spec; 35B: 5.997 vs 6.42. The KV cache uses the UOS boundary instead (see below).
+- **e4m3 (activation): C = 256** (the e4m3 max is 448). A plateau across ~128-256 in a 16-chunk sweep, with a cliff past ~320 - the same stepped-in optimum as the weight. 27B: 6.32 at /256 vs 6.69 at the spec's /448.
+
+A 72-chunk A/B (256/343/464, 3 models x imatrix + plain, 24 runs) found no measurable difference between the three - the e4m3 grid is fine enough that the boundary value does not change accuracy across that band, so the shipped 256 is already at the floor of the band.
 
 **KV cache (UOS, default).** For the KV cache, the boundary follows the MXAttention Universal Optimal Scaling: a distribution-independent Qmax that minimizes the expected block error without calibration (arXiv 2607.24377). For e2m1 the optimum is Qmax=7.25 (verified numerically); it raises the boundary above the e_base pin so the very top values may clip slightly in exchange for far less underflow of the bulk of the block - which dominates the expected block error. Measured (72-chunk KLD, mxfp4 weights): the KV-cache effect is 12%/41%/6% lower (0.8B/27B/35B); the weight path is unaffected. Verified: E4M3 (activation) Qmax=464 sits at the top of a flat-optimal band [343, 464].
 
