@@ -165,7 +165,7 @@ def ppl_vs_size():
     fig, axgrid = new_figure(1, 3, w=5.4, h=4.3)
     for ax, (model, rows) in zip(axgrid, PPL.items()):
         style_axes(ax, title=model, xlabel="file size (GB)", ylabel="PPL", xlog=True)
-        plot_rows = [r for r in rows if r[0] not in ("bf16", "q3ks")]
+        plot_rows = [r for r in rows if r[0] not in ("bf16", "q3ks", "Q8_0")]
         scatter_quant_points(ax, plot_rows)
         bf16 = next((r[2] for r in rows if r[0] == "bf16"), None)
         if bf16 is not None:
@@ -174,7 +174,9 @@ def ppl_vs_size():
         from matplotlib.ticker import FuncFormatter, MaxNLocator
         # log scale, but the range spans < 1 decade: place regular-number ticks with a linear-style locator
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
-        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.1f}" if v < 10 else f"{v:.0f}"))
+        xspan = max(r[1] for r in plot_rows) - min(r[1] for r in plot_rows)
+        nd = 2 if xspan < 1 else 0
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _, nd=nd: f"{v:.{nd}f}" if v < 10 else f"{v:.0f}"))
         allvals = [r[2] for r in plot_rows] + [r[3] for r in plot_rows if r[3] is not None]
         ymin, ymax = min(allvals), max(allvals)
         pad = (ymax - ymin) * 0.15
@@ -318,8 +320,8 @@ W4A = {
 def w4a8_vs_w4a4():
     fig, ax = new_figure(1, 3, w=4.6, h=3.6)
     panels = [("Mean PPL (lower is better)", 0, 1, False, None),
-              ("prefill pp4096 (t/s)", 2, 3, True, [1000, 5000, 10000, 20000, 40000]),
-              ("decode tg128 (t/s)", 4, 5, True, [50, 100, 150, 200, 400, 600])]
+              ("prefill pp4096 (t/s)", 2, 3, True, [1000, 2000, 3000, 5000, 10000, 20000, 40000]),
+              ("decode tg128 (t/s)", 4, 5, True, [25, 50, 75, 100, 150, 200, 300, 400, 600])]
     models = list(W4A.keys())
     for col, (title, i4, i8, logy, yticks) in enumerate(panels):
         style_axes(ax[col], title=title)
