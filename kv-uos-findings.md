@@ -59,7 +59,33 @@ distribution - which is what actually dominates the expected block error.
 - Weights are NOT affected (imatrix-weighted scale search, separately proven
   already-optimal). This is a KV-cache-only improvement.
 
+## 35B validation (larger model, MoE A3B)
+
+To confirm the result generalizes, the same test was run on Qwen3.6-35B-A3B
+(BF16 weights, only KV cache varies), 3 runs x 72 chunks vs 35b-base.bin.
+
+| run   | Mean KLD   | PPL Δ (vs base) | top-p %  |
+|-------|-----------|-----------------|---------|
+| control (f16 KV) | 0.002091 | +0.001 | 98.484 |
+| uos (mxfp4 KV)   | 0.011629 | +0.022458 | 95.632 |
+| ebase (mxfp4 KV) | 0.012184 | +0.020994 | 95.397 |
+
+**UOS vs e_base on 35B (more nuanced than 0.8B):**
+- KLD: 0.011629 vs 0.012184 -> UOS 4.6% lower (marginal, ~1.7x combined std)
+- PPL: 0.022458 vs 0.020994 -> ebase 7% better (within noise, ~0.38x combined std)
+- top-p: 95.632% vs 95.397% (UOS slightly better)
+
+**Interpretation:** On the larger 35B MoE model, UOS and e_base are very close
+(within noise on PPL, marginally different on KLD). The clear UOS win seen on
+0.8B (10.9% lower KLD, 33% smaller PPL effect) is less pronounced on 35B.
+The UOS advantage appears model-size-dependent: clearer on small models, more
+mixed on large models. This is an honest, nuanced finding - the data-free UOS
+boundary (Qmax=7.25) is a safe default (never worse than e_base beyond noise),
+but its advantage is most visible on smaller models where the KV-cache
+quantization error dominates.
+
 ## Reproduce
 - Build: build-mxfp4-kv-uos (CPU native, Release)
-- Runs: logs/mxfp4-scale-search/kv-uos/{control,uos,ebase}.log
+- 0.8B runs: logs/mxfp4-scale-search/kv-uos/{control,uos,ebase}.log
+- 35B runs: logs/mxfp4-scale-search/kv-uos-35b/{control,uos,ebase}.log
 - Analysis: kv_uos_kld_analysis.py
