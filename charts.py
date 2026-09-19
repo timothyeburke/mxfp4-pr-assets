@@ -154,7 +154,7 @@ def scatter_quant_points(ax, rows):
     items = [Line2D([0], [0], marker="o", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4")]
     if any(r[0] == "mxfp4-moe" for r in rows):
         items.append(Line2D([0], [0], marker="D", ls="", ms=9, mec="white", mfc=PALETTE["mx"], label="mxfp4_moe"))
-    items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["other"], label="3/4/5-bit family"))
+    items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec="white", mfc=PALETTE["other"], label="others"))
     items.append(Line2D([0], [0], marker="o", ls="", ms=7, mec=PALETTE["other"], mfc="none", label="no imatrix"))
     items.append(Line2D([0], [0], color="#000000", ls="--", lw=1.2, alpha=0.1, label="bf16 (ref)"))
     ax.legend(handles=items, loc="upper right", frameon=False, fontsize=8, ncol=1, handlelength=1.4, borderaxespad=0.5)
@@ -194,13 +194,13 @@ KV_TYPES = ["f16", "q4_0", "q4_1", "q5_1", "mxfp4"]
 KV = {
     "0.8B": {"mem": {"f16": 1.14, "q4_0": 0.32, "q4_1": 0.36, "q5_1": 0.43, "mxfp4": 0.30},
              "tg":  {"f16": 434.4, "q4_0": 411.2, "q4_1": 413.6, "q5_1": 414.7, "mxfp4": 412.9},
-             "ppl": {"f16": 1.0000, "q4_0": 1.0123, "q4_1": 1.0099, "q5_1": 1.0021, "mxfp4": 1.0093}},
+             "ppl": {"f16": 16.6019, "q4_0": 16.7930, "q4_1": 16.7546, "q5_1": 16.6526, "mxfp4": 16.7897}},
     "27B":  {"mem": {"f16": 6.10, "q4_0": 1.72, "q4_1": 1.91, "q5_1": 2.29, "mxfp4": 1.62},
              "tg":  {"f16": 42.6, "q4_0": 42.1, "q4_1": 42.1, "q5_1": 42.1, "mxfp4": 42.2},
-             "ppl": {"f16": 1.0000, "q4_0": 1.0034, "q4_1": 1.0027, "q5_1": 1.0001, "mxfp4": 1.0081}},
+             "ppl": {"f16": 5.9367, "q4_0": 5.9698, "q4_1": 5.9551, "q5_1": 5.9354, "mxfp4": 5.9874}},
     "35B":  {"mem": {"f16": 1.91, "q4_0": 0.54, "q4_1": 0.60, "q5_1": 0.72, "mxfp4": 0.51},
              "tg":  {"f16": 183.9, "q4_0": 178.7, "q4_1": 179.3, "q5_1": 179.1, "mxfp4": 179.1},
-             "ppl": {"f16": 1.0000, "q4_0": 1.0023, "q4_1": 1.0023, "q5_1": 1.0002, "mxfp4": 1.0045}},
+             "ppl": {"f16": 5.5733, "q4_0": 5.5795, "q4_1": 5.5791, "q5_1": 5.5686, "mxfp4": 5.5940}},
 }
 
 def kv_color(t):
@@ -226,16 +226,22 @@ def kv_cache():
         axt.yaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
         axt.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
         axp = ax[6 + col]
-        style_axes(axp, ylabel="PPL ratio vs f16 KV (20 chunks)" if col == 0 else None)
-        bp = axp.bar(KV_TYPES, [d["ppl"][t] for t in KV_TYPES], color=[kv_color(t) for t in KV_TYPES], width=0.72)
+        style_axes(axp, ylabel="PPL (mxfp4 weights, 20 chunks)" if col == 0 else None)
+        f16p = d["ppl"]["f16"]
+        kv4 = [t for t in KV_TYPES if t != "f16"]
+        bp = axp.bar(kv4, [d["ppl"][t] for t in kv4], color=[kv_color(t) for t in kv4], width=0.6)
         axp.bar_label(bp, fmt="%.4f", fontsize=7, color=PALETTE["text"], padding=2)
-        axp.set_ylim(0, max(d["ppl"].values()) * 1.22)
+        axp.plot([-0.55, 3.55], [f16p, f16p], color="#000000", ls="--", lw=1.2, alpha=0.3, zorder=2)
+        axp.text(-0.55, f16p, f"  f16 {f16p:.4f}", fontsize=6.5, color=PALETTE["muted"], va="bottom")
+        vmin, vmax = min(d["ppl"].values()), max(d["ppl"].values())
+        axp.set_ylim(vmin * 0.999, vmax + (vmax - vmin) * 0.45)
         axu = ax[9 + col]
-        style_axes(axu, ylabel="KLD effect (mxfp4 KV - f16 KV)" if col == 0 else None)
-        eu, uu = KVUOS[model][0], KVUOS[model][1]
-        bu = axu.bar(["OCP e_base", "UOS 7.25"], [eu, uu], color=[PALETTE["other"], PALETTE["mx"]], width=0.5)
+        style_axes(axu, ylabel="KLD vs BF16 base (mxfp4 KV)" if col == 0 else None)
+        c0, e, u = KVDATA[model]["kld"]
+        bu = axu.bar(["OCP e_base", "UOS 7.25"], [e, u], color=[PALETTE["other"], PALETTE["mx"]], width=0.5)
         axu.bar_label(bu, fmt="%.6f", fontsize=7, color=PALETTE["text"], padding=2)
-        axu.set_ylim(0, max(eu, uu) * 1.22)
+        axu.plot([-0.5, 0.5], [c0, c0], color="#000000", ls="--", lw=1.2, alpha=0.3, zorder=2)
+        axu.set_ylim(0, max(c0, e, u) * 1.15)
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
@@ -353,12 +359,12 @@ W4A_LABEL = {"w4a4_old": "W4A4 (old scale)", "w4a4_uos": "W4A4 (UOS 7.25)",
              "w4a8_464": "W4A8 (UOS 464)"}
 
 # ------------------------------------------------------------------ UOS vs e_base KV cache
-# (kld_eff_ebase, kld_eff_uos, ppl_eff_ebase, ppl_eff_uos, topp_loss_ebase, topp_loss_uos) per model
-# KV-cache effect = metric(mxfp4-KV arm) - metric(f16-KV control), mxfp4-imx weights, GPU round
-KVUOS = {
-    "0.8B": (0.019666, 0.017324, 0.2417, 0.1860, 1.291, 1.089),
-    "27B":  (0.003232, 0.001900, 0.0438, 0.0622, 0.243, 0.253),
-    "35B":  (0.005016, 0.004714, 0.0237, 0.0220, 0.488, 0.475),
+# Real values, 72-chunk GPU round (mxfp4-imx weights, 2x 5060 Ti, verified vs raw logs):
+# (f16-KV control, OCP e_base, UOS 7.25) per model and metric
+KVDATA = {
+    "0.8B": {"kld": (0.149191, 0.168857, 0.166515), "ppl": (16.1832, 16.4249, 16.3692), "topp": (81.28, 79.99, 80.19)},
+    "27B":  {"kld": (0.089920, 0.093152, 0.091820), "ppl": (6.3536, 6.3974, 6.4157), "topp": (90.18, 89.94, 89.93)},
+    "35B":  {"kld": (0.068204, 0.073220, 0.072918), "ppl": (5.9285, 5.9521, 5.9504), "topp": (89.40, 88.91, 88.92)},
 }
 
 
@@ -406,25 +412,25 @@ def w4a8_vs_w4a4():
     save(fig, "w4a8-vs-w4a4.png")
 
 def kv_uos():
-    fig, ax = new_figure(1, 3, w=4.6, h=3.6)
-    panels = [("KLD effect (lower is better)", 0, 1, 4, 5),
-              ("PPL effect (lower is better)", 2, 3, 4, 5),
-              ("top-p loss, pt (lower is better)", 4, 5, 4, 5)]
-    models = list(KVUOS.keys())
-    for col, (title, ie, iu, _, _) in enumerate(panels):
-        style_axes(ax[col], title=title)
-        x = np.arange(len(models))
-        w = 0.38
-        ve = [KVUOS[m][ie] for m in models]
-        vu = [KVUOS[m][iu] for m in models]
-        ax[col].bar(x - w/2, ve, width=w, color=PALETTE["other"], label="OCP e_base")
-        ax[col].bar(x + w/2, vu, width=w, color=PALETTE["mx"], label="UOS Qmax=7.25")
-        ax[col].set_xticks(x); ax[col].set_xticklabels(models)
-        for xi, (a, b) in enumerate(zip(ve, vu)):
-            ax[col].text(xi - w/2, a, f"{a:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["muted"])
-            ax[col].text(xi + w/2, b, f"{b:g}", ha="center", va="bottom", fontsize=7, color=PALETTE["text"])
-        ax[col].set_ylim(0, max(ve + vu) * 1.18)
-        ax[col].legend(frameon=False, fontsize=7, loc="upper right", ncol=1)
+    from matplotlib.lines import Line2D
+    fig, ax = new_figure(3, 3, w=5.0, h=3.2)
+    fig.subplots_adjust(hspace=0.55)
+    models = list(KVDATA.keys())
+    panels = [("Mean KLD vs BF16 base (lower is better)", "kld", "%.6f", 0),
+              ("Mean PPL (lower is better)", "ppl", "%.3f", 0.995),
+              ("Same top-p % (higher is better)", "topp", "%.2f", 0.98)]
+    for row, (title, key, fmt, yfrac) in enumerate(panels):
+        for col, m in enumerate(models):
+            a = ax[row * 3 + col]
+            style_axes(a, title=m, ylabel=title if col == 0 else None)
+            c0, e, u = KVDATA[m][key]
+            b = a.bar(["OCP e_base", "UOS 7.25"], [e, u],
+                      color=[PALETTE["other"], PALETTE["mx"]], width=0.5)
+            a.bar_label(b, fmt=fmt, fontsize=7, color=PALETTE["text"], padding=2)
+            a.plot([-0.5, 0.5], [c0, c0], color="#000000", ls="--", lw=1.2, alpha=0.3, zorder=2)
+            a.text(0.55, c0, f"  f16 {c0:.4f}", fontsize=6.5, color=PALETTE["muted"], va="bottom")
+            vmin, vmax = min(c0, e, u), max(c0, e, u)
+            a.set_ylim(0 if yfrac == 0 else vmin * yfrac, vmax * 1.3 if yfrac == 0 else vmax + (vmax - vmin) * 0.35)
     save(fig, "kv-uos-vs-ebase.png")
 
 
