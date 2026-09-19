@@ -162,7 +162,7 @@ pp4096 / tg128 pending re-measurement on the fresh files.
 
 **KV cache (`--cache-type-k/--cache-type-v mxfp4`):**
 
-![KV cache: memory, decode throughput, PPL by KV type, and UOS vs e_base KLD effect](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
+![KV cache: memory, decode throughput, PPL by KV type, and UOS vs e_base KLD (f16/BF16 ref lines)](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
 
 **KV cache type is a memory choice, not a speed one:** quantized KV (mxfp4) uses ~3-4x less memory than f16 at long context, while decode throughput is flat across all KV types.
 
