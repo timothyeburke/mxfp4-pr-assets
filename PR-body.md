@@ -5,14 +5,14 @@ End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4
 - **Dense ftype + KV cache** - `LLAMA_FTYPE_MOSTLY_MXFP4` =42; `--cache-type-k/--cache-type-v mxfp4` KV read directly by the FA vec kernel
 - **W4A8 matmul** - activations are intrinsic-quantized on Blackwell to e4m3 and prefill via the block-scaled `mxf8f6f4` mma (e2m1 x e4m3, scale_vec::1X) instead of W4A4 (e2m1 x e2m1). More accurate than the W4A4 path it replaces; the cost is prefill-only, decode is unchanged
 - **Scale selection** - measured-optimal e8m0 block scales: used existing fmax=4.0 for e2m1 weights and selected fmax=256 for e4m3 activations, both yielding better perplexity scores than the OCP spec's overflow-safe 6.0 and 448.0 by a wide margin. Optional `--imatrix` weight path picks the optimal per-block weight scale using the importance matrix
-- **KV cache scale (UOS)** - the mxfp4 KV-cache scale boundary follows the MXAttention Universal Optimal Scaling (Qmax=7.25, data-free, arXiv 2607.24377) instead of the OCP e_base: the measured KV-cache quantization effect is 12%/41%/6% lower (KLD) on 0.8B/27B/35B. Default for the mxfp4 KV cache; the weight path (imatrix-weighted scale search) is unchanged
+- **KV cache scale (UOS)** - the mxfp4 KV-cache scale boundary follows the MXAttention Universal Optimal Scaling (Qmax=7.25, data-free, arXiv 2607.24377) instead of the OCP e_base: the measured KV-cache quantization effect is 12%/41%/6% lower (KLD) on 0.8B/27B/35B. Default for the mxfp4 KV cache; the weight path is unchanged
 
 
 The mxfp4 imatrix quantizations are on HuggingFace: [0.8B](https://huggingface.co/timlikesai/Qwen3.5-0.8B-MXFP4), [27B](https://huggingface.co/timlikesai/Qwen3.8-27B-MXFP4), [35B-A3B](https://huggingface.co/timlikesai/Qwen3.6-35B-A3B-MXFP4) - each repo includes the imatrix file used, so the quants are reproducible.
 
 ## Results
 
-Tested using 2x 5060 Ti 16GB throttled to 150/180W.
+Tested using 2x 5060 Ti 16GB throttled to 150W.
 
 **W4A8 (this PR) vs W4A4 - same mxfp4 files, isolated Blackwell MMA activation change:**
 
@@ -20,7 +20,7 @@ Tested using 2x 5060 Ti 16GB throttled to 150/180W.
 
 <details>
 <summary>Detail tables</summary>
-W4A8 (this PR) vs W4A4 (baseline), same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers 999 --split-mode tensor --flash-attn on`. The mxfp4 files load on master with an `unknown type mxfp4` metadata warning and route to the existing W4A4 mma. W4A8 (e4m3 activations) trades a prefill slowdown for a large accuracy win; decode is unchanged. The chart covers 5 arms: W4A4 with the old (OCP 4.0) and UOS (7.25) activation scales, and W4A8 with the shipped (256) and UOS candidate (343/464) e4m3 boundaries. UOS improves W4A4 by 8-13% KLD (0.8B/35B) but W4A8 stays ~2.4x better, and the e4m3 grid is insensitive to the boundary choice.
+W4A8 (this PR) vs W4A4 (baseline), same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers 999 --split-mode tensor --flash-attn on`. The mxfp4 files load on master with an `unknown type mxfp4` metadata warning and route to the existing W4A4 mma. W4A8 (e4m3 activations) trades a prefill slowdown for a large accuracy win; decode is unchanged. The chart covers 5 arms: W4A4 with the old (OCP 4.0) and UOS (7.25) activation scales, and W4A8 with the shipped (256) and UOS candidate (343/464) e4m3 boundaries.
 
 W4A8 KLD vs W4A4, 72-chunk KLD round, mxfp4 files, f16 KV, 2x 5060 Ti (base .bin's recorded on the same hardware):
 
@@ -172,9 +172,9 @@ GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -r 5. 27B
 <details>
 <summary>Detail tables (KV cache, GPU + CPU)</summary>
 
-KV cache memory (GiB) at 100k tokens, and throughput by KV type: GPU (2x RTX 5060 Ti @150W, Q4_1 weights, pp4096/tg128, --flash-attn 1) and CPU (pp512/tg32, 24 threads, --n-gpu-layers 0), -r 5:
+KV cache memory (GiB) at 100k tokens, and throughput by KV type: GPU (2x RTX 5060 Ti, 150W, Q4_1 weights, pp4096/tg128, --flash-attn 1) and CPU (pp512/tg32, 24 threads, --n-gpu-layers 0), -r 5:
 
-| model | KV | memory @100k | GPU pp4096 | GPU tg128 | 9900X pp512 | 9900X tg32 |
+| model | KV | memory (100k) | GPU pp4096 | GPU tg128 | 9900X pp512 | 9900X tg32 |
 |---|---|---:|---:|---:|---:|---:|
 | Qwen3.5-0.8B | f16 | 1.14 GiB | 17549.8 | 398.0 | 3942.6 | 47.4 |
 |  | q4_0 | 0.32 GiB | 17311.7 | 397.2 | 3563.8 | 40.0 |
@@ -214,7 +214,7 @@ mxfp4-imx weights, 2x RTX 5060 Ti; KV-cache effect = arm - control (f16 KV). KLD
 | 27B | 0.089920 / 6.3536 / 90.18 | 0.093152 / 6.3974 / 89.94 | 0.091820 / 6.4157 / 89.93 | 41.2% |
 | 35B | 0.068204 / 5.9285 / 89.40 | 0.073220 / 5.9521 / 88.91 | 0.072918 / 5.9504 / 88.92 | 6.0% |
 
-A CPU 72-chunk round (BF16 weights, 0.8B/35B) shows the same direction: UOS 10.9% lower KLD on 0.8B, marginal on 35B - see the findings doc for the run-to-run std. After the opt-in was removed, the default was re-verified on both backends (mxfp4-imx 0.8B, 72 chunks, no env vars): weight floor 0.1494 (CPU) / 0.1492 (GPU) and KV effect 0.0173 on both, with a BF16 CPU control at KLD 0.000000.
+A CPU 72-chunk round (BF16 weights, 0.8B/35B) shows the same direction: UOS 10.9% lower KLD on 0.8B, marginal on 35B. The default (no env vars) was re-verified on both backends (mxfp4-imx 0.8B, 72 chunks): weight floor 0.1494 (CPU) / 0.1492 (GPU) and KV effect 0.0173 on both, with a BF16 CPU control at KLD 0.000000.
 
 </details>
 
@@ -237,10 +237,10 @@ The e8m0 block scale is the standard power-of-two formula, `round_to_pow2(amax /
 - **e2m1 (weight): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value. A flat PPL plateau from ~3-5 with a cliff above 5. 27B: 6.44 at /4.0 vs 6.69 at the spec; 35B: 5.997 vs 6.42. The KV cache uses the UOS boundary instead (see below).
 - **e4m3 (activation): C = 256** (the e4m3 max is 448). A plateau across ~128-256 in a 16-chunk sweep, with a cliff past ~320 - the same stepped-in optimum as the weight. 27B: 6.32 at /256 vs 6.69 at the spec's /448.
 
-A 72-chunk A/B (256/343/464, 3 models x imatrix + plain, 24 runs) found no measurable difference between the three - the e4m3 grid is fine enough that the boundary value does not change accuracy across that band, so the shipped 256 is already at the floor of the band.
+A 72-chunk A/B (256/343/464, 3 models x imatrix + plain, 24 runs) found no measurable difference between the three - the e4m3 grid is fine enough that the boundary value does not change accuracy across that band, so the shipped 256 is fine.
 
 **KV cache (UOS, default).** For the KV cache, the boundary follows the MXAttention Universal Optimal Scaling: a distribution-independent Qmax that minimizes the expected block error without calibration (arXiv 2607.24377). For e2m1 the optimum is Qmax=7.25 (verified numerically); it raises the boundary above the e_base pin so the very top values may clip slightly in exchange for far less underflow of the bulk of the block - which dominates the expected block error. Measured (72-chunk KLD, mxfp4 weights): the KV-cache effect is 12%/41%/6% lower (0.8B/27B/35B); the weight path is unaffected. Verified: E4M3 (activation) Qmax=464 sits at the top of a flat-optimal band [343, 464].
-
+**KV cache (UOS, default).** For the KV cache, the boundary follows the MXAttention Universal Optimal Scaling: a distribution-independent Qmax that minimizes the expected block error without calibration (arXiv 2607.24377). For e2m1 the optimum is Qmax=7.25 (verified numerically); it raises the boundary above the e_base pin so the very top values may clip slightly in exchange for far less underflow of the bulk of the block - which dominates the expected block error. Verified: E4M3 (activation) Qmax=464 sits at the top of a flat-optimal band [343, 464].
 
 A single-pass "pick the scale that minimizes output error" (the natural per-layer optimum) is a *worse* default: because the e8m0 scale is a power of two, the per-tensor optimum lands at a different scale than the one that generalizes, and it measured worse (6.5586 vs 6.32 on the 27B). The fixed stepped-in scales are the robust choice.
 
@@ -248,11 +248,10 @@ A single-pass "pick the scale that minimizes output error" (the natural per-laye
 
 Newly quantized files differ from old ones byte for byte; existing GGUFs are unaffected since dequantization is unchanged.
 
-Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations (W4A4); this PR's W4A8 + stepped-in-scale + imatrix work takes the near-f16 quality with the MMQ speed.
 
 ### Controls and provenance
 
-**Before this PR, MXFP4 was only available for MoE expert weights (MXFP4_MOE). Dense MXFP4 is new here.** All mxfp4 quants are re-quantized from the ggml-org BF16 bases (Qwen3.8-27B-GGUF, Qwen3.6-35B-A3B-GGUF, Qwen3.5-0.8B-GGUF) with this branch's measured-optimal scale (weight /4.0, activation /256) and the full imatrix; the mxfp4 PPL above is the imatrix-weighted variant (27B: 6.364 imx vs 6.441 plain). PPL and KLD/top-p are hardware-independent; the pp/tg bench columns are pending re-measurement on the fresh files.
+**Before this PR, MXFP4 was only available for MoE expert weights (MXFP4_MOE). Dense MXFP4 is new here.** All mxfp4 quants are re-quantized from the ggml-org BF16 bases (Qwen3.8-27B-GGUF, Qwen3.6-35B-A3B-GGUF, Qwen3.5-0.8B-GGUF) with this branch's measured-optimal scale (weight /4.0, activation /256) and the full imatrix; the mxfp4 PPL above is the imatrix-weighted variant (27B: 6.364 imx vs 6.441 plain).
 
 ### How measured
 
@@ -273,7 +272,8 @@ Hardware: 2x RTX 5060 Ti (throttled to 150W); CPU: AMD Ryzen 9 9900X (24 threads
 
 - NVFP4/NVFP4_MOE ftypes are intentionally out of scope; #26869 covers the combined NVFP4 quantizer. This PR is MXFP4-only and stays focused on execution, KV, and tests. If maintainers prefer, #26869's author can take the NVFP4 portion and this PR the MXFP4 portion - a clean split along format lines
 - mxfp6/mxfp8 dense quants are working in my tree as the next follow-up on the same `mxf8f6f4` plumbing
-- Related: #26989 requests the sibling NVFP4 KV cache and #19662 discusses the sm_120 block-scale mma build
+- Related KV cache: #6863 was the original 4-bit KV-cache feature request, #27362 (q3_K) is the precedent for adding a KV-cache type, #28633 proposes defaulting FA_ALL_QUANTS on for 4-bit KV, and #27109 reports a 4-bit-KV prefill collapse on a qwen35 hybrid (RTX 3090) - the mxfp4 KV data above shows no such collapse
+- Related: #26989 requests the sibling NVFP4 KV cache, #19662 is the sm_120 block-scale mma build issue, and #26704 is adjacent SM120 MoE prefill work for MXFP4/NVFP4
 
 ## Requirements
 
