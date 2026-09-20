@@ -193,19 +193,16 @@ def ppl_vs_size():
 KV_TYPES = ["f16", "q4_0", "q4_1", "q5_1", "mxfp4"]
 KV = {
     "0.8B": {"mem": {"f16": 1.14, "q4_0": 0.32, "q4_1": 0.36, "q5_1": 0.43, "mxfp4": 0.30},
-             "tg":  {"f16": 434.4, "q4_0": 411.2, "q4_1": 413.6, "q5_1": 414.7, "mxfp4": 412.9},
-             "cpu285":  {"f16": 43.3, "q4_0": 38.3, "q4_1": 38.4, "q5_1": 42.7, "mxfp4": 39.4},
-             "cpu9900": {"f16": 53.9, "q4_0": 52.9, "q4_1": 51.2, "q5_1": 50.1, "mxfp4": 51.3},
+             "tg":  {"f16": 398.0, "q4_0": 397.2, "q4_1": 393.5, "q5_1": 401.2, "mxfp4": 374.3},
+             "cpu9900": {"f16": 47.4, "q4_0": 40.0, "q4_1": 41.1, "q5_1": 47.9, "mxfp4": 47.8},
              "ppl": {"f16": 16.1832, "q4_0": 16.3717, "q4_1": 16.3289, "q5_1": 16.2197, "mxfp4": 16.3692}},
     "27B":  {"mem": {"f16": 6.10, "q4_0": 1.72, "q4_1": 1.91, "q5_1": 2.29, "mxfp4": 1.62},
-             "tg":  {"f16": 42.6, "q4_0": 42.1, "q4_1": 42.1, "q5_1": 42.1, "mxfp4": 42.2},
-             "cpu285":  {"f16": 3.0, "q4_0": 3.1, "q4_1": 3.4, "q5_1": 3.4, "mxfp4": 3.4},
-             "cpu9900": {"f16": 2.2, "q4_0": 2.2, "q4_1": 2.4, "q5_1": 2.4, "mxfp4": 2.3},
+             "tg":  {"f16": 41.4, "q4_0": 41.3, "q4_1": 41.6, "q5_1": 41.7, "mxfp4": 41.3},
+             "cpu9900": {"f16": 2.0, "q4_0": 1.8, "q4_1": 1.1, "q5_1": 1.9, "mxfp4": 2.2},
              "ppl": {"f16": 6.3536, "q4_0": 6.3744, "q4_1": 6.3671, "q5_1": 6.3568, "mxfp4": 6.4157}},
     "35B":  {"mem": {"f16": 1.91, "q4_0": 0.54, "q4_1": 0.60, "q5_1": 0.72, "mxfp4": 0.51},
-             "tg":  {"f16": 183.9, "q4_0": 178.7, "q4_1": 179.3, "q5_1": 179.1, "mxfp4": 179.1},
-             "cpu285":  {"f16": 14.2, "q4_0": 14.3, "q4_1": 14.3, "q5_1": 14.3, "mxfp4": 14.4},
-             "cpu9900": {"f16": 14.4, "q4_0": 14.3, "q4_1": 14.3, "q5_1": 14.3, "mxfp4": 14.5},
+             "tg":  {"f16": 181.2, "q4_0": 175.2, "q4_1": 172.2, "q5_1": 174.7, "mxfp4": 175.6},
+             "cpu9900": {"f16": 12.5, "q4_0": 11.7, "q4_1": 12.9, "q5_1": 12.1, "mxfp4": 12.6},
              "ppl": {"f16": 5.9285, "q4_0": 5.9429, "q4_1": 5.9453, "q5_1": 5.9310, "mxfp4": 5.9504}},
 }
 
@@ -229,7 +226,7 @@ def _speed_row(ax, vals, ylabel, log=True):
         ax.set_ylim(vmin - (vmax - vmin) * 0.9, vmax + (vmax - vmin) * 0.15)
 
 def kv_cache():
-    fig, ax = new_figure(6, 3, w=5.0, h=3.0)
+    fig, ax = new_figure(5, 3, w=5.0, h=3.0)
     for col, (model, d) in enumerate(KV.items()):
         axm = ax[col]
         style_axes(axm, title=model, ylabel="KV mem (GiB @100k)" if col == 0 else None)
@@ -237,9 +234,8 @@ def kv_cache():
         axm.bar_label(bm, fmt="%.2f", fontsize=7, color=PALETTE["text"], padding=2)
         axm.set_ylim(0, max(d["mem"].values()) * 1.22)
         _speed_row(ax[3 + col], d["tg"], "GPU decode (t/s)" if col == 0 else None)
-        _speed_row(ax[6 + col], d["cpu285"], "285K tg32 (t/s)" if col == 0 else None, log=False)
-        _speed_row(ax[9 + col], d["cpu9900"], "9900X tg32 (t/s)" if col == 0 else None, log=False)
-        axp = ax[12 + col]
+        _speed_row(ax[6 + col], d["cpu9900"], "9900X tg32 (t/s)" if col == 0 else None, log=False)
+        axp = ax[9 + col]
         style_axes(axp, ylabel="PPL (mxfp4 weights, 72 chunks)" if col == 0 else None)
         f16p = d["ppl"]["f16"]
         kv4 = [t for t in KV_TYPES if t != "f16"]
@@ -249,7 +245,7 @@ def kv_cache():
         axp.text(-0.55, f16p, f"  f16 {f16p:.4f}", fontsize=6.5, color=PALETTE["muted"], va="bottom")
         vmin, vmax = min(d["ppl"].values()), max(d["ppl"].values())
         axp.set_ylim(vmin * 0.999, vmax + (vmax - vmin) * 0.45)
-        axu = ax[15 + col]
+        axu = ax[12 + col]
         style_axes(axu, ylabel="KLD vs BF16 base (mxfp4 KV)" if col == 0 else None)
         c0, e, u = KVDATA[model]["kld"]
         bu = axu.bar(["OCP e_base", "UOS 7.25"], [e, u], color=[PALETTE["other"], PALETTE["mx"]], width=0.5)

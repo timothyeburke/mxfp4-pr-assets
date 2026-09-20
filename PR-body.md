@@ -163,7 +163,7 @@ GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -r 5. 27B
 
 **KV cache (`--cache-type-k/--cache-type-v mxfp4`):**
 
-![KV cache: memory, GPU decode, 285K/9900X CPU tg32, PPL by KV type (72 chunks), and UOS vs e_base KLD (f16/BF16 ref lines)](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
+![KV cache: memory, GPU decode, 9900X CPU tg32, PPL by KV type (72 chunks), and UOS vs e_base KLD (f16/BF16 ref lines)](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
 
 **KV cache type is a memory choice, not a speed one:** quantized KV (mxfp4) uses ~3-4x less memory than f16 at long context, while decode throughput is flat across all KV types.
 
@@ -172,25 +172,25 @@ GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -r 5. 27B
 
 KV cache memory (GiB) at 100k tokens, and throughput by KV type: GPU (2x RTX 5060 Ti @150W, Q4_1 weights, pp4096/tg128, --flash-attn 1) and CPU (pp512/tg32, 24 threads, --n-gpu-layers 0), -r 5:
 
-| model | KV | memory @100k | GPU pp4096 | GPU tg128 | 285K pp512 | 285K tg32 | 9900X pp512 | 9900X tg32 |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| Qwen3.5-0.8B | f16 | 1.14 GiB | 19006.9 | 434.4 | 985.5 | 43.3 | 846.0 | 53.9 |
-|  | q4_0 | 0.32 GiB | 18738.0 | 411.2 | 949.8 | 38.3 | 825.6 | 52.9 |
-|  | q4_1 | 0.36 GiB | 18734.4 | 413.6 | 928.9 | 38.4 | 860.9 | 51.2 |
-|  | q5_1 | 0.43 GiB | 18772.1 | 414.7 | 869.6 | 42.7 | 265.8 | 50.1 |
-|  | **mxfp4** | **0.30 GiB** | 18737.8 | 412.9 | 850.1 | 39.4 | 371.3 | 51.3 |
-| Qwen3.8-27B | f16 | 6.10 GiB | 1461.1 | 42.6 | 45.7 | 3.0 | 49.9 | 2.2 |
-|  | q4_0 | 1.72 GiB | 1449.4 | 42.1 | 45.1 | 3.1 | 49.3 | 2.2 |
-|  | q4_1 | 1.91 GiB | 1445.7 | 42.1 | 45.2 | 3.4 | 51.1 | 2.4 |
-|  | q5_1 | 2.29 GiB | 1446.9 | 42.1 | 44.7 | 3.4 | 43.8 | 2.4 |
-|  | **mxfp4** | **1.62 GiB** | 1447.2 | 42.2 | 44.5 | 3.4 | 45.7 | 2.3 |
-| Qwen3.6-35B-A3B | f16 | 1.91 GiB | 3524.5 | 183.9 | 191.3 | 14.2 | 173.3 | 14.4 |
-|  | q4_0 | 0.54 GiB | 3496.9 | 178.7 | 187.2 | 14.3 | 158.5 | 14.3 |
-|  | q4_1 | 0.60 GiB | 3509.4 | 179.3 | 186.7 | 14.0 | 143.2 | 14.3 |
-|  | q5_1 | 0.72 GiB | 3508.9 | 179.1 | 180.6 | 14.3 | 129.6 | 14.0 |
-|  | **mxfp4** | **0.51 GiB** | 3494.9 | 179.1 | 174.8 | 14.4 | 130.7 | 14.5 |
+| model | KV | memory @100k | GPU pp4096 | GPU tg128 | 9900X pp512 | 9900X tg32 |
+|---|---|---:|---:|---:|---:|---:|
+| Qwen3.5-0.8B | f16 | 1.14 GiB | 17549.8 | 398.0 | 3942.6 | 47.4 |
+|  | q4_0 | 0.32 GiB | 17311.7 | 397.2 | 3563.8 | 40.0 |
+|  | q4_1 | 0.36 GiB | 17321.7 | 393.5 | 3695.9 | 41.1 |
+|  | q5_1 | 0.43 GiB | 17215.6 | 401.2 | 2156.4 | 47.9 |
+|  | **mxfp4** | **0.30 GiB** | 17228.7 | 374.3 | 3144.8 | 47.8 |
+| Qwen3.8-27B | f16 | 6.10 GiB | 1270.8 | 41.4 | 266.2 | 2.0 |
+|  | q4_0 | 1.72 GiB | 1418.4 | 41.3 | 201.9 | 1.8 |
+|  | q4_1 | 1.91 GiB | 1420.0 | 41.6 | 143.2 | 1.1 |
+|  | q5_1 | 2.29 GiB | 1412.6 | 41.7 | 204.7 | 1.9 |
+|  | **mxfp4** | **1.62 GiB** | 1417.3 | 41.3 | 207.5 | 2.2 |
+| Qwen3.6-35B-A3B | f16 | 1.91 GiB | 3369.9 | 181.2 | 289.7 | 12.5 |
+|  | q4_0 | 0.54 GiB | 3367.8 | 175.2 | 329.3 | 11.7 |
+|  | q4_1 | 0.60 GiB | 3367.8 | 172.2 | 371.8 | 12.9 |
+|  | q5_1 | 0.72 GiB | 3310.5 | 174.7 | 364.1 | 12.1 |
+|  | **mxfp4** | **0.51 GiB** | 3366.0 | 175.6 | 361.3 | 12.6 |
 
-These are hybrid linear/full-attention models - full attention every 4 blocks, so only a fraction of layers grow the KV cache (0.8B: 6 of 24 layers; 27B: 16 of 64; 35B: 10 of 40; KV head dim 256); the sizes above reflect that. The KV-type cost is consistent across weight quants (both the Q4_1 and mxfp4 weight files show a similar few-% slowdown vs f16); the 9900X is notably more sensitive to the Q5_1 KV, while mxfp4 stays close to f16 on both CPUs.
+These are hybrid linear/full-attention models - full attention every 4 blocks, so only a fraction of layers grow the KV cache (0.8B: 6 of 24 layers; 27B: 16 of 64; 35B: 10 of 40; KV head dim 256); the sizes above reflect that. The KV-type cost is consistent across weight quants (both the Q4_1 and mxfp4 weight files show a similar few-% slowdown vs f16); the 9900X is notably more sensitive to the Q5_1 KV, while mxfp4 stays close to f16 on both GPU and CPU.
 
 </details>
 
@@ -263,7 +263,7 @@ Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations (W4A4
 | imatrix weight quant | `llama-quantize --imatrix` | calibration perplexity run -> importance matrix; per-block weight-scale search around /4.0 |
 | weight RMSE | `llama-quantize` / `llama-bench` | vs the dequantized BF16 |
 
-Hardware: 2x RTX 5070 Ti (local) and 2x RTX 5060 Ti (throttled at 150/180W); CPU: Intel Core Ultra 9 285K and AMD Ryzen 9 9900X (24 threads). All models are ggml-org; KLD and PPL are hardware-independent.
+Hardware: 2x RTX 5060 Ti (throttled to 150W); CPU: AMD Ryzen 9 9900X (24 threads). All models are ggml-org; KLD and PPL are hardware-independent.
 
 </details>
 
