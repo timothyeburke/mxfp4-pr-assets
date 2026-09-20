@@ -66,53 +66,54 @@ The 4-bit family clusters tightly in PPL; mxfp4 sits in the pack on the dense mo
 KLD and same top-p are both monotonic in bit-width, and the imatrix (filled) beats no-imatrix (hollow) for every quant - it consistently reduces divergence and improves top-p agreement with the bf16 base. On the 35B, the MoE recipe (experts mxfp4, dense Q8_0) splits the difference: the mxfp4 experts cost +0.023 KLD over the Q8_0 ref, and downgrading the dense parts to mxfp4 adds another +0.040 on top.
 
 <details>
-<summary>Detail tables (PPL + size, full imatrix; pp/tg pending re-measure)</summary>
+<summary>Detail tables (PPL + size, full imatrix; GPU pp4096/tg128 + CPU pp512/tg32)</summary>
 
 [Qwen3.8-27B](https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF) (dense):
 
-| quant | size (GB) | PPL | pp4096 | tg128 |
-|---|---:|---:|---:|---:|
-| bf16 (ref) | 53.8 | 6.435 | - | - |
-| Q8_0 (ref) | 28.6 | 6.434 | - | - |
-| q5_1 | 20.3 | 6.417 | - | - |
-| q4_1 | 17.1 | 6.342 | - | - |
-| iq4xs | 15.1 | 6.438 | - | - |
-| q4ks | 15.6 | 6.294 | - | - |
-| **mxfp4 (imx)** | 15.7 | **6.364** | - | - |
-| q4_0 | 15.5 | 6.572 | - | - |
-| q3ks | 12.1 | 6.779 | - | - |
+| quant | size (GB) | PPL | GPU pp4096 | GPU tg128 | CPU pp512 | CPU tg32 |
+|---|---:|---:|---:|---:|---:|---:|
+| bf16 (ref) | 53.8 | 6.435 | - | - | 40.1 | 0.6 |
+| Q8_0 (ref) | 28.6 | 6.434 | 1498.9 | 27.6 | 210.8 | 1.4 |
+| q5_1 | 20.3 | 6.417 | 1428.5 | 37.0 | 254.1 | 2.1 |
+| q4_1 | 17.1 | 6.342 | 1455.3 | 42.6 | 276.6 | 2.4 |
+| iq4xs | 15.1 | 6.438 | 1537.6 | 46.2 | 273.9 | 2.6 |
+| q4ks | 15.6 | 6.294 | 1467.2 | 45.7 | 299.2 | 2.6 |
+| **mxfp4 (imx)** | 15.7 | **6.364** | 1490.1 | 46.8 | 297.4 | 2.6 |
+| q4_0 | 15.5 | 6.572 | 1530.9 | 46.2 | 310.3 | 2.6 |
+| q3ks | 12.1 | 6.779 | 1279.0 | 48.6 | 240.3 | 3.2 |
 
 [Qwen3.5-0.8B](https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF) (dense):
 
-| quant | size (GB) | PPL | pp4096 | tg128 |
-|---|---:|---:|---:|---:|
-| bf16 (ref) | 1.6 | 15.129 | - | - |
-| Q8_0 (ref) | 0.8 | 15.162 | - | - |
-| q5_1 | 0.6 | 15.350 | - | - |
-| q4_1 | 0.5 | 15.786 | - | - |
-| iq4xs | 0.5 | 15.870 | - | - |
-| q4ks | 0.5 | 15.999 | - | - |
-| **mxfp4 (imx)** | 0.6 | **16.181** | - | - |
-| q4_0 | 0.5 | 18.444 | - | - |
-| q3ks | 0.4 | 19.601 | - | - |
+| quant | size (GB) | PPL | GPU pp4096 | GPU tg128 | CPU pp512 | CPU tg32 |
+|---|---:|---:|---:|---:|---:|---:|
+| bf16 (ref) | 1.6 | 15.129 | 18552.3 | 280.7 | 794.4 | 18.5 |
+| Q8_0 (ref) | 0.8 | 15.162 | 19492.1 | 384.4 | 5041.4 | 41.6 |
+| q5_1 | 0.6 | 15.350 | 18859.2 | 420.8 | 5615.4 | 53.4 |
+| q4_1 | 0.5 | 15.786 | 18853.1 | 433.1 | 4679.2 | 56.4 |
+| iq4xs | 0.5 | 15.870 | 19220.2 | 419.3 | 5713.1 | 62.3 |
+| q4ks | 0.5 | 15.999 | 18966.0 | 428.4 | 5899.0 | 62.5 |
+| **mxfp4 (imx)** | 0.6 | **16.181** | 18884.1 | 421.0 | 5927.1 | 56.1 |
+| q4_0 | 0.5 | 18.444 | 19334.5 | 441.9 | 6092.9 | 61.5 |
+| q3ks | 0.4 | 19.601 | 18200.3 | 407.7 | 5574.8 | 67.6 |
 
 [Qwen3.6-35B-A3B](https://huggingface.co/ggml-org/Qwen3.6-35B-A3B-GGUF) (MoE):
 
-| quant | size (GB) | PPL | pp4096 | tg128 |
-|---|---:|---:|---:|---:|
-| bf16 (ref) | 69.4 | 5.745 | - | - |
-| Q8_0 (ref) | 36.9 | 5.740 | - | - |
-| q5_1 | 26.1 | 5.756 | - | - |
-| q5ks | 24.0 | 5.785 | - | - |
-| q4_1 | 21.8 | 5.804 | - | - |
-| q4ks | 19.9 | 5.808 | - | - |
-| iq4xs | 18.7 | 5.859 | - | - |
-| mxfp4 (all) | 19.0 | 5.934 | - | - |
-| **mxfp4 (MoE recipe)** | 19.8 | **5.776** | - | - |
-| q4_0 | 19.8 | 5.839 | - | - |
-| q3ks | 15.2 | 6.194 | - | - |
+| quant | size (GB) | PPL | GPU pp4096 | GPU tg128 | CPU pp512 | CPU tg32 |
+|---|---:|---:|---:|---:|---:|---:|
+| bf16 (ref) | 69.4 | 5.745 | - | - | 138.5 | 6.2 |
+| Q8_0 (ref) | 36.9 | 5.740 | - | - | 238.6 | 10.7 |
+| q5_1 | 26.1 | 5.756 | 3457.1 | 172.6 | 330.9 | 14.0 |
+| q5ks | 24.0 | 5.785 | 3464.4 | 171.5 | 359.8 | 14.4 |
+| q4_1 | 21.8 | 5.804 | 3510.9 | 184.2 | 413.1 | 15.1 |
+| q4ks | 19.9 | 5.808 | 3539.9 | 180.1 | 435.9 | 16.2 |
+| iq4xs | 18.7 | 5.859 | 3613.8 | 170.3 | 445.7 | 16.1 |
+| mxfp4 (all) | 19.0 | 5.934 | 3030.2 | 178.7 | 452.0 | 16.2 |
+| **mxfp4 (MoE recipe)** | 19.8 | **5.776** | 3052.9 | 152.4 | 417.7 | 12.4 |
+| q4_0 | 19.8 | 5.839 | 3639.6 | 189.5 | 433.4 | 15.1 |
+| q3ks | 15.2 | 6.194 | 3157.4 | 167.5 | 491.1 | 18.4 |
 
-pp4096 / tg128 pending re-measurement on the fresh files.
+GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -r 5. 27B/35B bf16 and 35B Q8_0 do not fit 2x16G on GPU.
+
 
 **KL divergence + same top-p vs BF16** (full imatrix, all chunks; imx vs no-imx):
 
@@ -162,7 +163,7 @@ pp4096 / tg128 pending re-measurement on the fresh files.
 
 **KV cache (`--cache-type-k/--cache-type-v mxfp4`):**
 
-![KV cache: memory, decode throughput, PPL by KV type, and UOS vs e_base KLD (f16/BF16 ref lines)](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
+![KV cache: memory, GPU decode, 285K/9900X CPU tg32, PPL by KV type (72 chunks), and UOS vs e_base KLD (f16/BF16 ref lines)](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
 
 **KV cache type is a memory choice, not a speed one:** quantized KV (mxfp4) uses ~3-4x less memory than f16 at long context, while decode throughput is flat across all KV types.
 
