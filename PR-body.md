@@ -8,6 +8,8 @@ End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4
 - **KV cache scale (UOS)** - the mxfp4 KV-cache scale boundary follows the MXAttention Universal Optimal Scaling (Qmax=7.25, data-free, arXiv 2607.24377) instead of the OCP e_base: the measured KV-cache quantization effect is 12%/41%/6% lower (KLD) on 0.8B/27B/35B. Default for the mxfp4 KV cache; the weight path (imatrix-weighted scale search) is unchanged
 
 
+The mxfp4 imatrix quantizations are on HuggingFace: [0.8B](https://huggingface.co/timlikesai/Qwen3.5-0.8B-MXFP4), [27B](https://huggingface.co/timlikesai/Qwen3.8-27B-MXFP4), [35B-A3B](https://huggingface.co/timlikesai/Qwen3.6-35B-A3B-MXFP4) - each repo includes the imatrix file used, so the quants are reproducible.
+
 ## Results
 
 Tested using 2x 5060 Ti 16GB throttled to 150/180W.
