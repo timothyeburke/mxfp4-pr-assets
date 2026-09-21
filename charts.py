@@ -379,12 +379,13 @@ KVDATA = {
 
 
 def w4a8_vs_w4a4():
+    from matplotlib.ticker import FuncFormatter
     fig, ax = new_figure(2, 3, w=4.6, h=3.6)
     models = list(W4A5.keys())
-    acc = [("Mean PPL (lower is better)", 0),
-           ("Mean KLD vs BF16 base (lower is better)", 1),
-           ("Same top-p % (higher is better)", 2)]
-    for col, (title, idx) in enumerate(acc):
+    acc = [("Mean PPL (lower is better)", 0, [6, 8, 10, 15, 20]),
+           ("Mean KLD vs BF16 base (lower is better)", 1, [0.07, 0.1, 0.2, 0.4]),
+           ("Same top-p % (higher is better)", 2, [70, 75, 80, 85, 90])]
+    for col, (title, idx, yticks) in enumerate(acc):
         style_axes(ax[col], title=title)
         x = np.arange(len(models))
         w = 0.185
@@ -395,7 +396,13 @@ def w4a8_vs_w4a4():
             ax[col].bar(x + off, v, width=w, color=c, hatch=h, label=W4A_LABEL[s],
                         edgecolor="white", linewidth=0.4)
         ax[col].set_xticks(x); ax[col].set_xticklabels(models)
-        ax[col].set_ylim(0, max(W4A5[m][s][idx] for m in models for s in W4A_SERIES) * 1.18)
+        vmin = min(W4A5[m][s][idx] for m in models for s in W4A_SERIES)
+        vmax = max(W4A5[m][s][idx] for m in models for s in W4A_SERIES)
+        ax[col].set_yscale("log")
+        ax[col].set_yticks(yticks)
+        ax[col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+        ax[col].tick_params(which="minor", labelleft=False, labelbottom=False)
+        ax[col].set_ylim(vmin * 0.95, vmax * 1.12)
         ax[col].legend(frameon=False, fontsize=6.5, loc="upper right", ncol=2)
     ax[5].set_visible(False)
     spd = [("prefill pp4096 (t/s)", 0, [1000, 2000, 3000, 5000, 10000, 20000, 40000]),
