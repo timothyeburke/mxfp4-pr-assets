@@ -19,7 +19,7 @@ Tested using 2x 5060 Ti 16GB throttled to 150W/180W due to a slightly defective 
 ![W4A8 vs W4A4: PPL, KLD, top-p across scale variants + throughput](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-vs-w4a4.png)
 
 <details>
-<summary>Detail tables</summary>
+<summary>Details</summary>
 
 Same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers 999 --split-mode tensor --flash-attn on`. The mxfp4 files load on master with an `unknown type mxfp4` metadata warning and route to the existing W4A4 mma. W4A8 (e4m3 activations) trades a small prefill slowdown for a large accuracy win; decode is unchanged. 
 
@@ -60,7 +60,7 @@ UOS helps the coarse e2m1 grid (W4A4 activations: 8-13% KLD on 0.8B/35B) like it
 
 ![PPL vs file size](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/ppl-vs-size.png)
 <details>
-<summary>Detail tables (PPL + size, full imatrix; GPU pp4096/tg128 + CPU pp512/tg32)</summary>
+<summary>Details</summary>
 
 [Qwen3.8-27B](https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF) (dense):
 
@@ -113,7 +113,7 @@ GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -r 5. 27B
 ![KL divergence + same top-p](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kl-top-p.png)
 
 <details>
-<summary>Detail tables (KLD + same top-p, imx vs no-imx)</summary>
+<summary>Details</summary>
 
 [Qwen3.8-27B](https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF) (dense):
 
@@ -164,7 +164,7 @@ GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -r 5. 27B
 ![KV cache: memory, GPU decode, 9900X CPU tg32, PPL by KV type (72 chunks), and UOS vs e_base KLD (f16/BF16 ref lines)](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
 
 <details>
-<summary>Detail tables (KV cache, GPU + CPU)</summary>
+<summary>Details</summary>
 
 KV cache memory (GiB) at 100k tokens, and throughput by KV type: GPU (2x RTX 5060 Ti, 150W, Q4_1 weights, pp4096/tg128, --flash-attn 1) and CPU (pp512/tg32, 24 threads, --n-gpu-layers 0), -r 5:
 
@@ -195,7 +195,7 @@ UOS (Universal Optimal Scaling) lowers the mxfp4 KV-cache quantization error.
 ![UOS vs e_base KV-cache effect](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-uos-vs-ebase.png)
 
 <details>
-<summary>Detail table (KV-cache scale, 72-chunk KLD vs the CUDA-recorded BF16 base)</summary>
+<summary>Details</summary>
 
 mxfp4-imx weights, 2x RTX 5060 Ti; KV-cache effect = arm - control (f16 KV). KLD / PPL(Q) / top-p %:
 
