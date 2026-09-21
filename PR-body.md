@@ -215,27 +215,20 @@ A CPU 72-chunk round (BF16 weights, 0.8B/35B) shows the same direction: UOS 10.9
 <details>
 <summary>Why W4A8, scale derivation, and controls</summary>
 
-### Why W4A8 (e4m3 activations)
+### Why W4A8
 
-The previous native MXFP4 path quantized activations to e2m1 (W4A4), the dominant remaining accuracy error source. Measured on the 27B with a 16-chunk harness on wikitext-2 at ctx 4096: e2m1 activations score 6.4944 PPL against 6.2984 for f16 activations. e4m3's 3-bit mantissa and wide exponent range sit close to that bound while keeping the tensor cores. This uses the native mixed-precision `kind::mxf8f6f4` instruction, the sm_120-supported form (see #19662), and is the shared foundation for the MXFP family: mxfp6 and mxfp8 follow-ups use the same plumbing.
+The previous native MXFP4 path quantized activations to e2m1 (W4A4). W4A8 uses e4m3 activations via the native mixed-precision `kind::mxf8f6f4` mma - the sm_120-supported form (see #19662) - getting near-W4A16 quality with the MMQ speed; mxfp6/mxfp8 follow-ups reuse the same plumbing. Prior art: the closed #27315 kept e2m1 activations; its data showed W4A4 at 84.24% same-top-P (KLD 0.1316) vs 89.99% for W4A16 without MMQ.
 
-Prior art: the closed #27315 improved MXFP4 while keeping e2m1 activations; its own data showed W4A4 at 84.24% same-top-P (KLD 0.1316) vs 89.99% for W4A16 without MMQ. W4A8 takes the near-W4A16 quality with the MMQ speed.
+### Scale selection
 
-### Scale selection: e8m0 scales stepped in from the format max, plus the optional imatrix weight path
+The e8m0 block scale is the standard `round_to_pow2(amax / C)` with C stepped in from the format's max, so the block's largest value maps inside the representable range instead of onto its edge:
+- **e2m1 (weight): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value
+- **e4m3 (activation): C = 256** (the e4m3 max is 448) - selected by sweep; a 72-chunk A/B found the e4m3 grid insensitive to the boundary (see the W4A8 section)
+- **KV cache (UOS, default):** the MXAttention Universal Optimal Scaling boundary, Qmax=7.25, data-free (arXiv 2607.24377) - see the KV-cache scale section
 
-The e8m0 block scale is the standard power-of-two formula, `round_to_pow2(amax / C)`, where C is stepped in from the format's max (the mantissa's largest code), so the block's largest value maps inside the representable range instead of onto its edge. The e2m1 weight uses the codebase's existing C = 4.0 (stepped in from the e2m1 max of 6.0); we found a similar benefit for the e4m3 activation, suggesting the optimum is stepped in from the max for values in range for attention:
+A single-pass "pick the scale that minimizes output error" (the natural per-tensor optimum) measured worse (6.5586 vs 6.32 PPL on the 27B): the e8m0 scale is a power of two, so the per-tensor optimum does not generalize. The fixed stepped-in scales are the robust choice.
 
-- **e2m1 (weight): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value. A flat PPL plateau from ~3-5 with a cliff above 5. 27B: 6.44 at /4.0 vs 6.69 at the spec; 35B: 5.997 vs 6.42. The KV cache uses the UOS boundary instead (see below).
-- **e4m3 (activation): C = 256** (the e4m3 max is 448). A plateau across ~128-256 in a 16-chunk sweep, with a cliff past ~320 - the same stepped-in optimum as the weight. 27B: 6.32 at /256 vs 6.69 at the spec's /448.
-
-A 72-chunk A/B (256/343/464, 3 models x imatrix + plain, 24 runs) found no measurable difference between the three - the e4m3 grid is fine enough that the boundary value does not change accuracy across that band, so the shipped 256 is fine.
-
-**KV cache (UOS, default).** For the KV cache, the boundary follows the MXAttention Universal Optimal Scaling: a distribution-independent Qmax that minimizes the expected block error without calibration (arXiv 2607.24377). For e2m1 the optimum is Qmax=7.25 (verified numerically); it raises the boundary above the e_base pin so the very top values may clip slightly in exchange for far less underflow of the bulk of the block - which dominates the expected block error. Measured (72-chunk KLD, mxfp4 weights): the KV-cache effect is 12%/41%/6% lower (0.8B/27B/35B); the weight path is unaffected. Verified: E4M3 (activation) Qmax=464 sits at the top of a flat-optimal band [343, 464].
-**KV cache (UOS, default).** For the KV cache, the boundary follows the MXAttention Universal Optimal Scaling: a distribution-independent Qmax that minimizes the expected block error without calibration (arXiv 2607.24377). For e2m1 the optimum is Qmax=7.25 (verified numerically); it raises the boundary above the e_base pin so the very top values may clip slightly in exchange for far less underflow of the bulk of the block - which dominates the expected block error. Verified: E4M3 (activation) Qmax=464 sits at the top of a flat-optimal band [343, 464].
-
-A single-pass "pick the scale that minimizes output error" (the natural per-layer optimum) is a *worse* default: because the e8m0 scale is a power of two, the per-tensor optimum lands at a different scale than the one that generalizes, and it measured worse (6.5586 vs 6.32 on the 27B). The fixed stepped-in scales are the robust choice.
-
-**Optional imatrix weight quantization.** When calibration data is available, `llama-quantize` can search a band of weight scales around /4.0 and pick, per 32-wide block, the one that minimizes the *imatrix-weighted* output error (weights that the calibration says matter more get their error minimized first). On the 27B this improves on the fixed /4.0 by 0.12 PPL (6.3199 vs 6.4405) - enough to beat every fixed 4-bit quant except Q4_1. It is opt-in (default is the calibration-free /4.0) and is a smaller win on the MoE 35B, where the expert weights dominate and the dense parts that imatrix calibrates are a smaller fraction.
+**Optional imatrix weight quantization.** With calibration data, `llama-quantize --imatrix` searches a band of weight scales around /4.0 and picks, per 32-wide block, the one that minimizes the imatrix-weighted output error. Opt-in; the default is the calibration-free /4.0.
 
 Newly quantized files differ from old ones byte for byte; existing GGUFs are unaffected since dequantization is unchanged.
 
