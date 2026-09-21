@@ -24,14 +24,14 @@ W4A8 (this PR) vs W4A4 (baseline), same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers
 
 W4A8 KLD vs W4A4, 72-chunk KLD round, mxfp4 files, f16 KV, 2x 5060 Ti (base .bin's recorded on the same hardware):
 
-| model | file | KLD W4A4 | KLD W4A8 | reduction | top-p W4A4 | top-p W4A8 |
-|---|---|---:|---:|---:|---:|---:|
-| 0.8B | imx | 0.407816 | 0.149368 | 63.4% | 69.97 | 81.28 |
-| 0.8B | plain | 0.469920 | 0.187338 | 60.1% | 68.08 | 81.33 |
-| 27B | imx | 0.183153 | 0.089655 | 51.0% | 84.01 | 90.14 |
-| 27B | plain | 0.198278 | 0.100245 | 49.4% | 83.39 | 90.18 |
-| 35B | imx | 0.169050 | 0.068153 | 59.7% | 82.51 | 89.28 |
-| 35B | plain | 0.185963 | 0.088075 | 52.6% | 81.72 | 89.31 |
+| model | file | KLD W4A4 | KLD W4A8 | top-p W4A4 | top-p W4A8 |
+|---|---|---:|---:|---:|---:|
+| 0.8B | imx | 0.407816 | 0.149368 | 69.97 | 81.28 |
+| 0.8B | plain | 0.469920 | 0.187338 | 68.08 | 81.33 |
+| 27B | imx | 0.183153 | 0.089655 | 84.01 | 90.14 |
+| 27B | plain | 0.198278 | 0.100245 | 83.39 | 90.18 |
+| 35B | imx | 0.169050 | 0.068153 | 82.51 | 89.28 |
+| 35B | plain | 0.185963 | 0.088075 | 81.72 | 89.31 |
 
 UOS scale variants, same 72-chunk KLD round (W4A4 activation scale old OCP vs UOS 7.25; W4A8 e4m3 boundary 256 shipped vs 343/464 UOS candidates):
 
