@@ -59,12 +59,6 @@ UOS helps the coarse e2m1 grid (W4A4 activations: 8-13% KLD on 0.8B/35B) like it
 ### Accuracy vs file size
 
 ![PPL vs file size](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/ppl-vs-size.png)
-
-
-### KL divergence + same top-p vs BF16
-
-![KL divergence + same top-p](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kl-top-p.png)
-
 <details>
 <summary>Detail tables (PPL + size, full imatrix; GPU pp4096/tg128 + CPU pp512/tg32)</summary>
 
@@ -111,11 +105,15 @@ UOS helps the coarse e2m1 grid (W4A4 activations: 8-13% KLD on 0.8B/35B) like it
 | **mxfp4 (MoE recipe)** | 19.8 | **5.776** | 3052.9 | 152.4 | 417.7 | 12.4 |
 | q4_0 | 19.8 | 5.839 | 3639.6 | 189.5 | 433.4 | 15.1 |
 | q3ks | 15.2 | 6.194 | 3157.4 | 167.5 | 491.1 | 18.4 |
-
 GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -r 5. 27B/35B bf16 and 35B Q8_0 do not fit 2x16G on GPU.
-
+</details>
 
 ### KL divergence + same top-p vs BF16
+
+![KL divergence + same top-p](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kl-top-p.png)
+
+<details>
+<summary>Detail tables (KLD + same top-p, imx vs no-imx)</summary>
 
 [Qwen3.8-27B](https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF) (dense):
 
