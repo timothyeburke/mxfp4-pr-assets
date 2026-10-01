@@ -231,7 +231,7 @@ The 27B KV effect itself is only +0.0025 to +0.0034 KLD over the f16 control - b
 </details>
 
 
-## Design notes and methodology
+## Additional information
 
 <details>
 <summary>Why W4A8, scale derivation, and controls</summary>
@@ -275,12 +275,10 @@ Hardware: 2x RTX 5060 Ti (throttled to 150W); CPU: AMD Ryzen 9 9900X (24 threads
 
 </details>
 
-## Scope
-
-- NVFP4/NVFP4_MOE ftypes are intentionally out of scope; #26869 covers the combined NVFP4 quantizer. This PR is MXFP4-only and stays focused on execution, KV, and tests. If maintainers prefer, #26869's author can take the NVFP4 portion and this PR the MXFP4 portion - a clean split along format lines
-- mxfp6/mxfp8 dense quants are working in my tree as the next follow-up on the same `mxf8f6f4` plumbing
-- Related KV cache: #6863 was the original 4-bit KV-cache feature request, #27362 (q3_K) is the precedent for adding a KV-cache type, #28633 proposes defaulting FA_ALL_QUANTS on for 4-bit KV, and #27109 reports a 4-bit-KV prefill collapse on a qwen35 hybrid (RTX 3090) - the mxfp4 KV data above shows no such collapse
-- Related: #26989 requests the sibling NVFP4 KV cache, #19662 is the sm_120 block-scale mma build issue, and #26704 is adjacent SM120 MoE prefill work for MXFP4/NVFP4
+- NVFP4/NVFP4_MOE ftypes are intentionally out of scope. #26869 adds the dense MXFP4 and MoE NVFP4 ftypes plus their quantizers - overlapping this PR's dense-MXFP4 ftype - so the quantizer half of that work and this branch's execution half (W4A8 mma, KV cache, tests) would need reconciling if both land. Happy to split along format lines: this PR keeps MXFP4, #26869's author takes the NVFP4 portion
+- mxfp6/mxfp8 dense quants are working in my tree as the next follow-up on the same `mxf8f6f4` plumbing; the CPU-side MXFP8/MXFP6/E4M3 quantizer work (#26157, #22671, #25336) is the other half of that picture
+- Related KV cache: #6863 was the original 4-bit KV-cache feature request, #27362 (q3_K, closed unmerged) is the closest precedent for adding a KV-cache type, #28633 (filed before #28079 replaced FA_ALL_QUANTS with the GGML_CUDA_FA_QUANTS mechanism this branch uses) reports the silent CPU fallback for 4-bit KV, and #27109 reports a 4-bit-KV prefill collapse on a qwen35 hybrid (RTX 3090) - the mxfp4 KV data above shows no such collapse. #26989 (closed) requested the sibling NVFP4 KV cache
+- Related Blackwell/precision-path work: #24364 (merged) forces the W4A8 path for NVFP4 W4A16 layers on Blackwell, #26675 (merged) specifies `ggml_prec` (extended here with `GGML_PREC_MXFP8`), #19662 tracks the sm_120 block-scale mma build issue, #26704 is adjacent SM120 CUTLASS MoE prefill for MXFP4/NVFP4, #27329 reports an NVFP4 decode hang on sm_100, and #27178/#27670 report NVFP4 load/compute failures on CUDA/HIP
 
 ## Requirements
 
