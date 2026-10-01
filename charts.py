@@ -243,10 +243,9 @@ def kv_cache():
         _speed_row(ax[3 + col], d["tg"], "GPU decode (t/s)" if col == 0 else None)
         _speed_row(ax[6 + col], d["cpu9900"], "9900X tg32 (t/s)" if col == 0 else None, log=False)
         # PPL effect vs f16 KV: bar height IS the KV quantization cost
-        # PPL effect vs f16 KV: bar height IS the KV quantization cost;
-        # dashed line = f16-KV control (0 effect)
+        # PPL effect vs f16 KV: bar height IS the KV quantization cost
         axp = ax[9 + col]
-        style_axes(axp, ylabel="PPL effect vs f16 KV (lower is better)" if col == 0 else None)
+        style_axes(axp, ylabel="PPL effect vs f16 KV" if col == 0 else None)
         f16p = d["ppl"]["f16"]
         kv4 = [t for t in KV_TYPES if t != "f16"]
         eff = [d["ppl"][t] - f16p for t in kv4]
@@ -254,9 +253,7 @@ def kv_cache():
         axp.bar_label(bp, fmt="%.4f", fontsize=7, color=PALETTE["text"], padding=2)
         axp.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.4f}"))
         vmax = max(eff)
-        axp.set_ylim(-vmax * 0.14, vmax * 1.35)
-        axp.axhline(0, color="#000000", ls="--", lw=1.2, alpha=0.35, zorder=2)
-        axp.text(-0.44, 0, "f16 KV", fontsize=6.5, color=PALETTE["muted"], va="bottom", ha="left")
+        axp.set_ylim(0, vmax * 1.35)
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
@@ -443,14 +440,15 @@ def w4a8_vs_w4a4():
     save(fig, "w4a8-vs-w4a4.png")
 
 def kv_uos():
+def kv_uos():
     # effect = arm - f16-KV control (topp: control - arm), so bar height IS the
-    # KV quantization cost; the dashed line is the f16-KV control (0 effect)
+    # KV quantization cost (lower is better everywhere on this chart)
     fig, ax = new_figure(3, 3, w=5.0, h=3.2)
     fig.subplots_adjust(hspace=0.55)
     models = list(KVDATA.keys())
-    panels = [("KLD effect vs f16 KV (lower is better)", "kld", "%.4f"),
-              ("PPL effect vs f16 KV (lower is better)", "ppl", "%.3f"),
-              ("top-p loss vs f16 KV (lower is better)", "topp", "%.2f")]
+    panels = [("KLD effect vs f16 KV", "kld", "%.4f"),
+              ("PPL effect vs f16 KV", "ppl", "%.3f"),
+              ("top-p loss vs f16 KV", "topp", "%.2f")]
     for row, (title, key, fmt) in enumerate(panels):
         from matplotlib.ticker import FuncFormatter
         for col, m in enumerate(models):
@@ -463,9 +461,7 @@ def kv_uos():
             a.set_xticks([0, 1]); a.set_xticklabels(["OCP e_base", "UOS 7.25"], fontsize=8)
             a.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.4f}" if key == "kld" else f"{v:.3f}" if key == "ppl" else f"{v:.2f}"))
             vmax = max(eff)
-            a.set_ylim(-vmax * 0.14, vmax * 1.35)
-            a.axhline(0, color="#000000", ls="--", lw=1.2, alpha=0.35, zorder=2)
-            a.text(-0.44, 0, "f16 KV", fontsize=6.5, color=PALETTE["muted"], va="bottom", ha="left")
+            a.set_ylim(0, vmax * 1.35)
     save(fig, "kv-uos-vs-ebase.png")
 
 
