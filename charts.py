@@ -375,7 +375,7 @@ W4A_STYLE = {"w4a4_old": (PALETTE["other"], None), "w4a4_uos": (PALETTE["other"]
              "w4a8_256": (PALETTE["mx"], None), "w4a8_343": (PALETTE["mx"], "//"),
              "w4a8_464": ("#A8D44E", None)}
 W4A_LABEL = {"w4a4_old": "W4A4 (old scale)", "w4a4_uos": "W4A4 (UOS 7.25)",
-             "w4a8_q8": "W4A8-Q8 (Q8_0 acts)",
+             "w4a8_q8": "W4A8-Q8 (Q8_1 acts)",
              "w4a8_256": "W4A8 (256, shipped)", "w4a8_343": "W4A8 (UOS 343)",
              "w4a8_464": "W4A8 (UOS 464)"}
 # ------------------------------------------------------------------ UOS vs e_base KV cache

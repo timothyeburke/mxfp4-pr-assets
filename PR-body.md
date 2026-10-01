@@ -3,7 +3,7 @@
 End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4A8 block-scaled mma, imatrix-driven weight quantization, and an MXFP4 KV cache. Small and mighty at +840/-205 - mostly plumbing to complete the type across ggml quant/dequant, MMQ kernels, FA KV cache, and the llama ftype, plus tests.
 
 - **Dense ftype + KV cache** - `LLAMA_FTYPE_MOSTLY_MXFP4` =42; `--cache-type-k/--cache-type-v mxfp4` KV read directly by the FA vec kernel
-- **W4A8 matmul** - activations are intrinsic-quantized on Blackwell to e4m3 and prefill via the native block-scaled W4A8 `mxf8f6f4` mma instead of W4A4: ~2.4x lower KLD at unchanged decode. The same instruction and mostly the same code back the mxfp8/mxfp6 (W8A8/W6A8) weight follow-ups; the standard Q8_0-activation MMQ path remains selectable (`GGML_CUDA_MMQ_PREC=q8`)
+- **W4A8 matmul** - activations are intrinsic-quantized on Blackwell to e4m3 and prefill via the native block-scaled W4A8 `mxf8f6f4` mma instead of W4A4: ~2.4x lower KLD at unchanged decode. The same instruction and mostly the same code back the mxfp8/mxfp6 (W8A8/W6A8) weight follow-ups; the standard Q8_1-activation MMQ path remains selectable (`GGML_CUDA_MMQ_PREC=q8`)
 - **Scale selection** - existing fmax=4.0 for e2m1 weights and fmax=256 for e4m3 activations, both yielding better perplexity scores than the OCP spec's overflow-safe 6.0 and 448.0. Optional `--imatrix` weight path picks the optimal per-block weight scale using the importance matrix
 - **KV cache scale (UOS)** - the mxfp4 KV-cache scale boundary follows the MXAttention Universal Optimal Scaling ([arXiv 2607.24377](https://arxiv.org/abs/2607.24377)): the measured KV-cache quantization effect is lower (KLD) on 0.8B/35B, within run noise on 27B. Default for mxfp4 KV cache; the weight path is unchanged
 - **KV cache scale (UOS)** - the mxfp4 KV-cache scale boundary follows the MXAttention Universal Optimal Scaling ([arXiv 2607.24377](https://arxiv.org/abs/2607.24377)): the measured KV-cache quantization effect is lower (KLD) on 0.8B, within run noise on 27B/35B. Default for mxfp4 KV cache; the weight path is unchanged
@@ -21,7 +21,7 @@ Tested using 2x 5060 Ti 16GB throttled to 150W/180W due to a slightly defective 
 <details>
 <summary>Details</summary>
 
-Same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers 999 --split-mode tensor --flash-attn on`. Four MMQ activation arms: W4A4 with the old OCP scale (master `fb27a525d`, which loads these files with an `unknown type mxfp4` warning and routes to its existing W4A4 mma), W4A4 with the UOS e2m1 activation scale (this branch, `GGML_CUDA_MMQ_PREC=q4`), the shipped W4A8 `mxf8f6f4` path (e4m3 activations, default), and the standard Q8_0-activation MMQ path (`GGML_CUDA_MMQ_PREC=q8`). W4A8 cuts W4A4's KLD by ~2.4-2.7x; decode is unchanged across arms.
+Same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers 999 --split-mode tensor --flash-attn on`. Four MMQ activation arms: W4A4 with the old OCP scale (master `fb27a525d`, which loads these files with an `unknown type mxfp4` warning and routes to its existing W4A4 mma), W4A4 with the UOS e2m1 activation scale (this branch, `GGML_CUDA_MMQ_PREC=q4`), the shipped W4A8 `mxf8f6f4` path (e4m3 activations, default), and the standard Q8_1-activation MMQ path (`GGML_CUDA_MMQ_PREC=q8`). W4A8 cuts W4A4's KLD by ~2.4-2.7x; decode is unchanged across arms.
 
 W4A arms, imx (imatrix) files, 72-chunk KLD, f16 KV, vs the dumped BF16 base:
 
@@ -30,15 +30,15 @@ W4A arms, imx (imatrix) files, 72-chunk KLD, f16 KV, vs the dumped BF16 base:
 | 0.8B | W4A4 (old scale) | 21.390 | 0.407816 | 69.97 |
 | 0.8B | W4A4 (UOS 7.25) | 20.055 | 0.355445 | 71.94 |
 | 0.8B | W4A8 (256, shipped) | 16.179 | 0.149368 | 81.28 |
-| 0.8B | W4A8-Q8 (Q8_0 acts) | 16.084 | 0.143213 | 81.69 |
+| 0.8B | W4A8-Q8 (Q8_1 acts) | 16.084 | 0.143213 | 81.69 |
 | 27B | W4A4 (old scale) | 6.559 | 0.183153 | 84.01 |
 | 27B | W4A4 (UOS 7.25) | 6.506 | 0.181412 | 84.45 |
 | 27B | W4A8 (256, shipped) | 6.355 | 0.089626 | 90.16 |
-| 27B | W4A8-Q8 (Q8_0 acts) | 6.345 | 0.085965 | 90.48 |
+| 27B | W4A8-Q8 (Q8_1 acts) | 6.345 | 0.085965 | 90.48 |
 | 35B | W4A4 (old scale) | 6.469 | 0.169221 | 82.50 |
 | 35B | W4A4 (UOS 7.25) | 6.344 | 0.150270 | 83.59 |
 | 35B | W4A8 (256, shipped) | 5.930 | 0.067925 | 89.41 |
-| 35B | W4A8-Q8 (Q8_0 acts) | 5.913 | 0.065651 | 89.59 |
+| 35B | W4A8-Q8 (Q8_1 acts) | 5.913 | 0.065651 | 89.59 |
 
 Same for the plain (no-imatrix) files:
 
@@ -47,15 +47,15 @@ Same for the plain (no-imatrix) files:
 | 0.8B | W4A4 (old scale) | 23.111 | 0.469920 | 68.08 |
 | 0.8B | W4A4 (UOS 7.25) | 21.787 | 0.412132 | 69.85 |
 | 0.8B | W4A8 (256, shipped) | 17.507 | 0.187334 | 78.87 |
-| 0.8B | W4A8-Q8 (Q8_0 acts) | 17.370 | 0.180401 | 79.25 |
+| 0.8B | W4A8-Q8 (Q8_1 acts) | 17.370 | 0.180401 | 79.25 |
 | 27B | W4A4 (old scale) | 6.633 | 0.198278 | 83.39 |
 | 27B | W4A4 (UOS 7.25) | 6.604 | 0.191065 | 83.93 |
 | 27B | W4A8 (256, shipped) | 6.449 | 0.100394 | 89.27 |
-| 27B | W4A8-Q8 (Q8_0 acts) | 6.425 | 0.098277 | 89.50 |
+| 27B | W4A8-Q8 (Q8_1 acts) | 6.425 | 0.098277 | 89.50 |
 | 35B | W4A4 (old scale) | 6.514 | 0.185963 | 81.72 |
 | 35B | W4A4 (UOS 7.25) | 6.413 | 0.169811 | 82.83 |
 | 35B | W4A8 (256, shipped) | 5.998 | 0.088084 | 87.99 |
-| 35B | W4A8-Q8 (Q8_0 acts) | 5.978 | 0.085136 | 88.13 |
+| 35B | W4A8-Q8 (Q8_1 acts) | 5.978 | 0.085136 | 88.13 |
 
 UOS scale variants, same 72-chunk KLD (W4A4 activation scale old OCP vs UOS 7.25; W4A8 e4m3 boundary 256 shipped vs 343/464 UOS candidates), imx files:
 
@@ -65,7 +65,7 @@ UOS scale variants, same 72-chunk KLD (W4A4 activation scale old OCP vs UOS 7.25
 | 27B | 0.183153 | 0.181412 | 0.089626 | 0.089124 | 0.089002 |
 | 35B | 0.169221 | 0.150270 | 0.067925 | 0.068117 | 0.067942 |
 
-UOS helps the coarse e2m1 grid (W4A4 activations: 8-13% KLD on 0.8B/35B, neutral on 27B) like it does the KV cache, but W4A8 stays ~2.4x better; the fine e4m3 grid is flat across 256/343/464 (all within run noise). The Q8_0-activation path measures slightly better than W4A8 on both accuracy and prefill on this hardware.
+UOS helps the coarse e2m1 grid (W4A4 activations: 8-13% KLD on 0.8B/35B, neutral on 27B) like it does the KV cache, but W4A8 stays ~2.4x better; the fine e4m3 grid is flat across 256/343/464 (all within run noise). The Q8_1-activation path measures slightly better than W4A8 on both accuracy and prefill on this hardware.
 
 Throughput (imx files, pp4096 / tg128, -r 5):
 
@@ -239,7 +239,7 @@ The 27B KV effect itself is only +0.0025 to +0.0034 KLD over the f16 control - b
 
 ### Why W4A8
 
-The previous native MXFP4 path quantized activations to e2m1 (W4A4). W4A8 uses e4m3 activations via the native mixed-precision `kind::mxf8f6f4` mma - the sm_120-supported form (see #19662) - cutting W4A4's KLD by ~2.4x at unchanged decode; the same instruction and mostly the same code back the mxfp8/mxfp6 (W8A8/W6A8) weight follow-ups. The standard Q8_0-activation MMQ path (`GGML_CUDA_MMQ_PREC=q8`) stays selectable and measures slightly better than W4A8 on both accuracy and prefill on this hardware (Q8_1 activations carry more precision than e4m3); W4A8 remains the default as the format-native instruction path. Prior art: the closed #27315 kept e2m1 activations; its data showed W4A4 at 84.24% same-top-P (KLD 0.1316) vs 89.99% for W4A16 without MMQ.
+The previous native MXFP4 path quantized activations to e2m1 (W4A4). W4A8 uses e4m3 activations via the native mixed-precision `kind::mxf8f6f4` mma - the sm_120-supported form (see #19662) - cutting W4A4's KLD by ~2.4x at unchanged decode; the same instruction and mostly the same code back the mxfp8/mxfp6 (W8A8/W6A8) weight follow-ups. The standard Q8_1-activation MMQ path (`GGML_CUDA_MMQ_PREC=q8`) stays selectable and measures slightly better than W4A8 on both accuracy and prefill on this hardware (Q8_1 activations carry more precision than e4m3); W4A8 remains the default as the format-native instruction path. Prior art: the closed #27315 kept e2m1 activations; its data showed W4A4 at 84.24% same-top-P (KLD 0.1316) vs 89.99% for W4A16 without MMQ.
 
 ### Scale selection
 
@@ -268,7 +268,7 @@ Existing GGUFs are unaffected; dequantization is unchanged.
 | throughput (CPU) | `llama-bench` | `--n-gpu-layers 0 --threads 24 --n-prompt 512 --n-predict 32 --n-repeat 5` |
 | PPL vs BF16 | `llama-perplexity` | `--file wikitext-2 --n-gpu-layers 999 --split-mode tensor --flash-attn 1 --context-size 4096 --batch-size 512` (72 chunks) |
 | KLD + same top-p vs BF16 | `llama-perplexity --kl-divergence` | `--file wikitext-2 --context-size 4096` against a dumped bf16 base (full corpus) |
-| W4A activation arms | env | default = W4A8 `mxf8f6f4`; `GGML_CUDA_MMQ_PREC=q4` = W4A4 (UOS e2m1 scale); `GGML_CUDA_MMQ_PREC=q8` = standard Q8_0 activations; W4A4-old = master build |
+| W4A activation arms | env | default = W4A8 `mxf8f6f4`; `GGML_CUDA_MMQ_PREC=q4` = W4A4 (UOS e2m1 scale); `GGML_CUDA_MMQ_PREC=q8` = standard Q8_1 activations; W4A4-old = master build |
 | imatrix weight quant | `llama-quantize --imatrix` | calibration perplexity run -> importance matrix; per-block weight-scale search around /4.0 |
 | weight RMSE | `llama-quantize` / `llama-bench` | vs the dequantized BF16 |
 
