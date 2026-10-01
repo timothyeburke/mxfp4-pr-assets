@@ -7,8 +7,10 @@ Dense MXFP4 currently works only as MoE expert weights (MXFP4_MOE). This propose
 ## What it does
 
 1. **Dense ftype** (`LLAMA_FTYPE_MOSTLY_MXFP4` = 42) + CPU quantizer with optional imatrix per-block weight-scale search (`llama-quantize --imatrix`). Files dequantize through the standard paths on every backend.
+1. **Dense ftype** (`LLAMA_FTYPE_MOSTLY_MXFP4` = 42) + CPU quantizer with optional imatrix per-block weight-scale search (`llama-quantize --imatrix`). Files dequantize through the standard paths on every backend.
 2. **W4A8 MMQ on Blackwell**: activations quantized to e4m3, prefill via the native block-scaled `mxf8f6f4` mma (the sm_120a-supported form, see #19662; #24364 moved NVFP4 the same W4A8 direction; extends #26675's `ggml_prec` with `GGML_PREC_MXFP8`). W4A4 and Q8_1-activation paths remain selectable via `GGML_CUDA_MMQ_PREC`.
 3. **MXFP4 KV cache** (`--cache-type-k/--cache-type-v mxfp4`): smallest quantized KV in the codebase (4.25 bit + e8m0 scale), read directly by the FA vec kernel; the KV scale uses the MXAttention UOS boundary ([arXiv 2607.24377](https://arxiv.org/abs/2607.24377)).
+4. **The `mxf8f6f4` mma backbone**: this PR introduces the hardware block-scaled mixed-precision MMA instruction (`mxf8f6f4`: e2m1/e2m3/e3m2/e4m3/e5m2 values x e4m3/e5m2 scales) into the codebase, with the A/B tile loads, fragment layouts and e8m0 scale plumbing shared behind one code path. It buys higher-precision prefill for MXFP4 now, and the same backbone takes MXFP8 (W8A8) and MXFP6 (W6A8) dense weights as direct follow-ups - the type plumbing and quantizer changes those need are the small half, the mma work is already done.
 
 ## Top results
 
