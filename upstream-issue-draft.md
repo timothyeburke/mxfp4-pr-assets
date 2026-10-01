@@ -7,10 +7,9 @@ Dense MXFP4 currently works only as MoE expert weights (MXFP4_MOE). This propose
 ## What it does
 
 1. **Dense ftype** (`LLAMA_FTYPE_MOSTLY_MXFP4` = 42) + CPU quantizer with optional imatrix per-block weight-scale search (`llama-quantize --imatrix`). Files dequantize through the standard paths on every backend.
-1. **Dense ftype** (`LLAMA_FTYPE_MOSTLY_MXFP4` = 42) + CPU quantizer with optional imatrix per-block weight-scale search (`llama-quantize --imatrix`). Files dequantize through the standard paths on every backend.
 2. **W4A8 MMQ on Blackwell**: activations quantized to e4m3, prefill via the native block-scaled `mxf8f6f4` mma (the sm_120a-supported form, see #19662; #24364 moved NVFP4 the same W4A8 direction; extends #26675's `ggml_prec` with `GGML_PREC_MXFP8`). W4A4 and Q8_1-activation paths remain selectable via `GGML_CUDA_MMQ_PREC`.
 3. **MXFP4 KV cache** (`--cache-type-k/--cache-type-v mxfp4`): smallest quantized KV in the codebase (4.25 bit + e8m0 scale), read directly by the FA vec kernel; the KV scale uses the MXAttention UOS boundary ([arXiv 2607.24377](https://arxiv.org/abs/2607.24377)).
-4. **The `mxf8f6f4` mma backbone**: this PR introduces the hardware block-scaled mixed-precision MMA instruction (`mxf8f6f4`: e2m1/e2m3/e3m2/e4m3/e5m2 values x e4m3/e5m2 scales) into the codebase, with the A/B tile loads, fragment layouts and e8m0 scale plumbing shared behind one code path. It buys higher-precision prefill for MXFP4 now, and the same backbone takes MXFP8 (W8A8) and MXFP6 (W6A8) dense weights as direct follow-ups - the type plumbing and quantizer changes those need are the small half, the mma work is already done.
+4. **The `mxf8f6f4` mma backbone**: this PR introduces the hardware block-scaled mixed-precision MMA instruction (`mxf8f6f4`: e2m1/e2m3/e3m2/e4m3/e5m2 values x e4m3/e5m2 scales) into the codebase, with the A/B tile loads, fragment layouts and e8m0 scale plumbing shared behind one code path. It buys higher-precision prefill for MXFP4 now, and the same backbone takes MXFP8 (W8A8) and MXFP6 (W6A8) dense weights as direct follow-ups.
 
 ## Top results
 
@@ -36,8 +35,12 @@ Each part reviewed and merged independently; 1 and 2 are strict dependencies of 
 2. `ggml-cuda : MXFP4 MMQ (W4A8 Blackwell)` - mma + MMQ kernels + activation quantization, ~15 files (ggml-cuda)
 3. `ggml-cuda : MXFP4 KV cache` - cpy/set-rows/FA vec kernel + cache-type parsing, ~10 files (ggml-cuda)
 
+## Follow-up work
+
+MXFP6 (W6A8) and MXFP8 (W8A8) dense ftypes ride the same `mxf8f6f4` mma backbone: for those formats the mma and scale plumbing is the hard half and is already done; what remains is type definitions, quantizer entries and recipe defaults (the CPU-side MXFP8/MXFP6/E4M3 quantizer work in #26157, #22671, #25336 covers the other backend). I have a branch with both formats generating valid files and running end-to-end on Blackwell; it is less polished and untested to the standard of the three parts above, and I'd bring it forward as the next batch (same part-per-feature shape) once the MXFP4 parts land.
+
 ## Questions
 
-1. Is the 3-part split the right granularity, or is one PR preferred?
+1. Is the 3-part split the right granularity, or is one PR preferred? And should the MXFP6/MXFP8 follow-up ride the same batch structure?
 2. W4A8 vs W4A4 as the shipped default: W4A4 prefills ~25% faster; W4A8 roughly halves the KLD. The Q8_1 path measures marginally better than both but does not use the format-native instruction. Which way should the default go?
 3. KV cache scale: the UOS boundary (Qmax=7.25, data-free, from the MXAttention paper) lowers the KV-cache quantization cost on 0.8B (KLD effect 13% smaller, PPL effect 26% smaller, top-p loss 1.36 -> 1.13) and 35B (KLD 8% smaller); on 27B the whole KV effect is too small to distinguish the formulas. The same UOS boundary also improves the W4A4 activation path where the e2m1 grid is coarse: KLD 12.8%/11.2% lower on 0.8B/35B (27B within noise), PPL 21.39 -> 20.06 (0.8B) and 6.47 -> 6.34 (35B), top-p +2.0/+1.1 pt. Keep UOS as the default for the mxfp4 KV cache (and W4A4 activations)?
