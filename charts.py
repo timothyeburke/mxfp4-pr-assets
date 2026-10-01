@@ -440,7 +440,6 @@ def w4a8_vs_w4a4():
     save(fig, "w4a8-vs-w4a4.png")
 
 def kv_uos():
-def kv_uos():
     # effect = arm - f16-KV control (topp: control - arm), so bar height IS the
     # KV quantization cost (lower is better everywhere on this chart)
     fig, ax = new_figure(3, 3, w=5.0, h=3.2)
