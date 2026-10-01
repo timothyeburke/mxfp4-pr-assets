@@ -243,6 +243,8 @@ def kv_cache():
         _speed_row(ax[3 + col], d["tg"], "GPU decode (t/s)" if col == 0 else None)
         _speed_row(ax[6 + col], d["cpu9900"], "9900X tg32 (t/s)" if col == 0 else None, log=False)
         # PPL effect vs f16 KV: bar height IS the KV quantization cost
+        # PPL effect vs f16 KV: bar height IS the KV quantization cost;
+        # dashed line = f16-KV control (0 effect)
         axp = ax[9 + col]
         style_axes(axp, ylabel="PPL effect vs f16 KV (lower is better)" if col == 0 else None)
         f16p = d["ppl"]["f16"]
@@ -251,7 +253,10 @@ def kv_cache():
         bp = axp.bar(kv4, eff, color=[kv_color(t) for t in kv4], width=0.6)
         axp.bar_label(bp, fmt="%.4f", fontsize=7, color=PALETTE["text"], padding=2)
         axp.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.4f}"))
-        axp.set_ylim(0, max(eff) * 1.35)
+        vmax = max(eff)
+        axp.set_ylim(-vmax * 0.14, vmax * 1.35)
+        axp.axhline(0, color="#000000", ls="--", lw=1.2, alpha=0.35, zorder=2)
+        axp.text(-0.44, 0, "f16 KV", fontsize=6.5, color=PALETTE["muted"], va="bottom", ha="left")
     save(fig, "kv-cache.png")
 
 # ------------------------------------------------------------------ KL + top-p
@@ -437,12 +442,9 @@ def w4a8_vs_w4a4():
         ax[3 + col].legend(frameon=False, fontsize=6.5, loc="upper right", ncol=2)
     save(fig, "w4a8-vs-w4a4.png")
 
-# per-run KLD std (fresh logs) for the "within noise" tag
-KV_STD = {"0.8B": 0.000570, "27B": 0.001922, "35B": 0.000588}
-
 def kv_uos():
     # effect = arm - f16-KV control (topp: control - arm), so bar height IS the
-    # KV quantization cost and the UOS-vs-e_base difference is directly visible
+    # KV quantization cost; the dashed line is the f16-KV control (0 effect)
     fig, ax = new_figure(3, 3, w=5.0, h=3.2)
     fig.subplots_adjust(hspace=0.55)
     models = list(KVDATA.keys())
@@ -460,15 +462,10 @@ def kv_uos():
             a.bar_label(b, fmt=fmt, fontsize=7, color=PALETTE["text"], padding=2)
             a.set_xticks([0, 1]); a.set_xticklabels(["OCP e_base", "UOS 7.25"], fontsize=8)
             a.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.4f}" if key == "kld" else f"{v:.3f}" if key == "ppl" else f"{v:.2f}"))
-            a.set_ylim(0, max(eff) * 1.6)
-            de, du = eff
-            if abs(de - du) <= 2 * KV_STD[m]:
-                tag = "within run noise"
-            elif du < de:
-                tag = f"UOS {(de - du) / de:.0%} lower"
-            else:
-                tag = f"UOS {(du - de) / de:.0%} higher"
-            a.text(0.5, max(eff) * 1.38, tag, fontsize=7, color=PALETTE["muted"], ha="center", va="bottom")
+            vmax = max(eff)
+            a.set_ylim(-vmax * 0.14, vmax * 1.35)
+            a.axhline(0, color="#000000", ls="--", lw=1.2, alpha=0.35, zorder=2)
+            a.text(-0.44, 0, "f16 KV", fontsize=6.5, color=PALETTE["muted"], va="bottom", ha="left")
     save(fig, "kv-uos-vs-ebase.png")
 
 
