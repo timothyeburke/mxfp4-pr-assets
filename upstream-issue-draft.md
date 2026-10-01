@@ -38,4 +38,4 @@ Each part reviewed and merged independently; 1 and 2 are strict dependencies of 
 
 1. Is the 3-part split the right granularity, or is one PR preferred?
 2. W4A8 vs W4A4 as the shipped default: W4A4 prefills ~25% faster; W4A8 roughly halves the KLD. The Q8_1 path measures marginally better than both but does not use the format-native instruction. Which way should the default go?
-3. KV cache scale: the UOS boundary (Qmax=7.25, data-free, from the MXAttention paper) shows a clear KLD win on 0.8B and is within run noise on 27B/35B vs the OCP formula. Keep UOS as the default?
+3. KV cache scale: the UOS boundary (Qmax=7.25, data-free, from the MXAttention paper) lowers the KV-cache quantization cost on 0.8B (KLD effect 13% smaller, PPL effect 26% smaller, top-p loss 1.36 -> 1.13) and 35B (KLD 8% smaller); on 27B the whole KV effect is too small to distinguish the formulas. The same UOS boundary also improves the W4A4 activation path where the e2m1 grid is coarse: KLD 12.8%/11.2% lower on 0.8B/35B (27B within noise), PPL 21.39 -> 20.06 (0.8B) and 6.47 -> 6.34 (35B), top-p +2.0/+1.1 pt. Keep UOS as the default for the mxfp4 KV cache (and W4A4 activations)?
