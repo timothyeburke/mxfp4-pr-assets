@@ -504,6 +504,46 @@ def hw_5060_5070():
         ax[col].legend(frameon=False, fontsize=7, loc="upper right", ncol=2)
     save(fig, "w4a8-5060-vs-5070.png")
 
+# ------------------------------------------------------------------ W4A8 vs W4A4 (this branch)
+# imx quants, canonical build, 2x RTX 5060 Ti. (kld, ppl, topp, pp4096, tg128)
+W4A_RES = {
+    "0.8B": {"w4a4": (0.407429, 21.3419, 69.960, 21951, 410.6),
+             "w4a8": (0.149528, 16.1806, 81.248, 21645, 410.3)},
+    "27B":  {"w4a4": (0.183180,  6.5662, 84.104,  2093,  46.5),
+             "w4a8": (0.089938,  6.3581, 90.166,  1890,  46.5)},
+    "35B":  {"w4a4": (0.168713,  6.4702, 82.668,  4431, 176.6),
+             "w4a8": (0.068391,  5.9333, 89.356,  4169, 176.4)},
+}
+
+def w4a8_results():
+    from matplotlib.ticker import FuncFormatter
+    fig, ax = new_figure(2, 3, w=4.6, h=3.6)
+    models = list(W4A_RES.keys())
+    panels = [("KLD vs BF16 base", 0, [0.05, 0.1, 0.2, 0.4], "%.3f"),
+              ("PPL (wikitext-2)", 1, [5, 10, 15, 20], "%.2f"),
+              ("same top-p %", 2, [65, 70, 75, 80, 85, 90], "%.1f"),
+              ("prefill pp4096 (t/s)", 3, [1000, 2000, 5000, 10000, 20000, 40000], "%.0f"),
+              ("decode tg128 (t/s)", 4, [25, 50, 100, 200, 400, 600], "%.0f")]
+    for p, (title, idx, yticks, fmt) in enumerate(panels):
+        style_axes(ax[p], title=title)
+        ax[p].set_yscale("log")
+        ax[p].set_yticks(yticks)
+        ax[p].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+        ax[p].tick_params(which="minor", labelleft=False, labelbottom=False)
+        x = np.arange(len(models)); w = 0.34
+        for si, arm in enumerate(("w4a4", "w4a8")):
+            v = [W4A_RES[m][arm][idx] for m in models]
+            b = ax[p].bar(x + (si - 0.5) * w, v, width=w,
+                          color=PALETTE["mx"] if arm == "w4a8" else PALETTE["other"],
+                          edgecolor="white", linewidth=0.4, label=arm)
+            ax[p].bar_label(b, fmt=fmt, fontsize=7.5, color=PALETTE["text"], padding=2)
+        ax[p].set_xticks(x); ax[p].set_xticklabels(models)
+        allv = [W4A_RES[m][a][idx] for m in models for a in ("w4a4", "w4a8")]
+        ax[p].set_ylim(min(allv) * 0.85, max(allv) * 1.22)
+        ax[p].legend(frameon=False, fontsize=8, loc="upper right")
+    ax[5].set_visible(False)
+    save(fig, "w4a8-results.png")
+
 if __name__ == "__main__":
     import sys
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -519,3 +559,5 @@ if __name__ == "__main__":
         w4a8_vs_w4a4()
     if which in ("all", "hw"):
         hw_5060_5070()
+    if which in ("all", "res"):
+        w4a8_results()

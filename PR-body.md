@@ -1,307 +1,63 @@
 ## Overview
 
-End-to-end MXFP4 for CUDA Blackwell, narrowed from #20609: dense MXFP4 ftype, W4A8 block-scaled mma, imatrix-driven weight quantization, and an MXFP4 KV cache. Small and mighty at +840/-205 - mostly plumbing to complete the type across ggml quant/dequant, MMQ kernels, FA KV cache, and the llama ftype, plus tests.
+Adds a W4A8 path for MXFP4 `mul_mat` on Blackwell. `src1` is quantized to e4m3 with ue8m0 block
+scales and multiplied against the e2m1 weights with the block-scaled `kind::mxf8f6f4` MMA
+(`m16n8k32`). MXFP4 on Blackwell uses this path by default.
 
-- **Dense ftype + KV cache** - `LLAMA_FTYPE_MOSTLY_MXFP4` =42; `--cache-type-k/--cache-type-v mxfp4` KV read directly by the FA vec kernel
-- **W4A8 matmul** - activations are intrinsic-quantized on Blackwell to e4m3 and prefill via the native block-scaled W4A8 `mxf8f6f4` mma instead of W4A4: ~2.4x lower KLD at unchanged decode. The same instruction and mostly the same code back the mxfp8/mxfp6 (W8A8/W6A8) weight follow-ups; the standard Q8_1-activation MMQ path remains selectable (`GGML_CUDA_MMQ_PREC=q8`)
-- **Scale selection** - existing fmax=4.0 for e2m1 weights and fmax=256 for e4m3 activations, both yielding better perplexity scores than the OCP spec's overflow-safe 6.0 and 448.0. Optional `--imatrix` weight path picks the optimal per-block weight scale using the importance matrix
-- **UOS scale** - the MXAttention Universal Optimal Scaling boundary (Qmax=7.25, data-free, [arXiv 2607.24377](https://arxiv.org/abs/2607.24377)) for the coarse e2m1 activation grid: used for the mxfp4 KV cache (default) and for W4A4 activations when requested (`GGML_CUDA_MMQ_PREC=q4`). The measured KV-cache quantization effect is lower (KLD) on 0.8B, within run noise on 27B/35B; the weight path is unchanged
+- `GGML_PREC_MXFP8` added to `ggml_prec`.
+- `mma_block_scaled_fp4` takes a `prec_src1` template argument and emits
+  `mma.sync.aligned.kind::mxf8f6f4.block_scale.scale_vec::1X.m16n8k32.row.col.f32.e2m1.e4m3.f32.ue8m0`.
+  The existing `kind::mxf4` `m16n8k64` e2m1 x e2m1 instruction is kept for `GGML_PREC_Q4`.
+- `ggml_cuda_mmq_get_prec_src1` returns `GGML_PREC_MXFP8` for MXFP4 on Blackwell unless Q4 or Q8
+  is requested. NVFP4 is unchanged.
+- `quantize_mmq_mxfp8` and its MoE scatter variant: one warp per 32-value block, lane `l` holds
+  values `4l..4l+3`, `amax` reduced over the 8 lanes of a scale group, e8m0 scale
+  `2^rint(log2(amax / 256))`, four e4m3 codes packed per lane.
+- `ggml_cuda_mmq_load_tiles_mxfp4_mxfp8` loads the packed e2m1 weights and the ue8m0 scales into
+  the SRAM tile; the dot kernel unpacks them into the `mxf8f6f4` A-fragment.
+- MMQ Blackwell tile/SRAM config and template instances for the (MXFP4, MXFP8) pair. The `src1`
+  stride is taken from `y_block_size / y_values_per_block`.
+- `test-backend-ops`: W4A4 / W4A8 / Q8_1 cases for MXFP4. The nmse tolerance follows the
+  effective precision, since `GGML_CUDA_MMQ_PREC` overrides the op parameter.
 
-The mxfp4 imatrix quantizations are on HuggingFace: [0.8B](https://huggingface.co/timlikesai/Qwen3.5-0.8B-MXFP4), [27B](https://huggingface.co/timlikesai/Qwen3.8-27B-MXFP4), [35B-A3B](https://huggingface.co/timlikesai/Qwen3.6-35B-A3B-MXFP4) - each repo includes the imatrix file used, so the quants are reproducible.
-
-## Results
-
-Tested using 2x 5060 Ti 16GB throttled to 150W/180W due to a slightly defective power supply.
-
-### W4A8 (this PR) vs W4A4 vs Q8 activations
-
-![W4A8 vs W4A4 vs Q8 activations: PPL, KLD, top-p across scale variants + throughput](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-vs-w4a4.png)
-
-<details>
-<summary>Details</summary>
-
-Same mxfp4 files, 2x 5060 Ti, `--n-gpu-layers 999 --split-mode tensor --flash-attn on`. Four MMQ activation arms: W4A4 with the old OCP scale (master `fb27a525d`, which loads these files with an `unknown type mxfp4` warning and routes to its existing W4A4 mma), W4A4 with the UOS e2m1 activation scale (this branch, `GGML_CUDA_MMQ_PREC=q4`), the shipped W4A8 `mxf8f6f4` path (e4m3 activations, default), and the standard Q8_1-activation MMQ path (`GGML_CUDA_MMQ_PREC=q8`). W4A8 cuts W4A4's KLD by ~2.4-2.7x; decode is unchanged across arms.
-
-W4A arms, imx (imatrix) files, 72-chunk KLD, f16 KV, vs the dumped BF16 base:
-
-| model | arm | PPL | KLD | top-p |
-|---|---|---:|---:|---:|
-| 0.8B | W4A4 (old scale) | 21.390 | 0.407816 | 69.97 |
-| 0.8B | W4A4 (UOS 7.25) | 20.055 | 0.355445 | 71.94 |
-| 0.8B | W4A8 (256, shipped) | 16.179 | 0.149368 | 81.28 |
-| 0.8B | W4A8-Q8 (Q8_1 acts) | 16.084 | 0.143213 | 81.69 |
-| 27B | W4A4 (old scale) | 6.559 | 0.183153 | 84.01 |
-| 27B | W4A4 (UOS 7.25) | 6.506 | 0.181412 | 84.45 |
-| 27B | W4A8 (256, shipped) | 6.355 | 0.089626 | 90.16 |
-| 27B | W4A8-Q8 (Q8_1 acts) | 6.345 | 0.085965 | 90.48 |
-| 35B | W4A4 (old scale) | 6.469 | 0.169221 | 82.50 |
-| 35B | W4A4 (UOS 7.25) | 6.344 | 0.150270 | 83.59 |
-| 35B | W4A8 (256, shipped) | 5.930 | 0.067925 | 89.41 |
-| 35B | W4A8-Q8 (Q8_1 acts) | 5.913 | 0.065651 | 89.59 |
-
-Same for the plain (no-imatrix) files:
-
-| model | arm | PPL | KLD | top-p |
-|---|---|---:|---:|---:|
-| 0.8B | W4A4 (old scale) | 23.111 | 0.469920 | 68.08 |
-| 0.8B | W4A4 (UOS 7.25) | 21.787 | 0.412132 | 69.85 |
-| 0.8B | W4A8 (256, shipped) | 17.507 | 0.187334 | 78.87 |
-| 0.8B | W4A8-Q8 (Q8_1 acts) | 17.370 | 0.180401 | 79.25 |
-| 27B | W4A4 (old scale) | 6.633 | 0.198278 | 83.39 |
-| 27B | W4A4 (UOS 7.25) | 6.604 | 0.191065 | 83.93 |
-| 27B | W4A8 (256, shipped) | 6.449 | 0.100394 | 89.27 |
-| 27B | W4A8-Q8 (Q8_1 acts) | 6.425 | 0.098277 | 89.50 |
-| 35B | W4A4 (old scale) | 6.514 | 0.185963 | 81.72 |
-| 35B | W4A4 (UOS 7.25) | 6.413 | 0.169811 | 82.83 |
-| 35B | W4A8 (256, shipped) | 5.998 | 0.088084 | 87.99 |
-| 35B | W4A8-Q8 (Q8_1 acts) | 5.978 | 0.085136 | 88.13 |
-
-UOS scale variants, same 72-chunk KLD (W4A4 activation scale old OCP vs UOS 7.25; W4A8 e4m3 boundary 256 shipped vs 343/464 UOS candidates), imx files:
-
-| model | KLD W4A4 old | KLD W4A4 UOS | KLD W4A8 256 | KLD W4A8 343 | KLD W4A8 464 |
-|---|---:|---:|---:|---:|---:|
-| 0.8B | 0.407816 | 0.355445 | 0.149368 | 0.149433 | 0.149119 |
-| 27B | 0.183153 | 0.181412 | 0.089626 | 0.089124 | 0.089002 |
-| 35B | 0.169221 | 0.150270 | 0.067925 | 0.068117 | 0.067942 |
-
-UOS helps the coarse e2m1 grid (W4A4 activations: 8-13% KLD on 0.8B/35B, neutral on 27B) like it does the KV cache, but W4A8 stays ~2.4x better; the fine e4m3 grid is flat across 256/343/464 (all within run noise). The Q8_1-activation path measures slightly better than W4A8 on both accuracy and prefill on this hardware.
-
-Throughput (imx files, pp4096 / tg128, -r 5):
-
-| model | W4A4 old | W4A4 UOS | W4A8 | W4A8-Q8 |
-|---|---:|---:|---:|---:|
-| 0.8B | 19997 / 421.1 | 20220 / 425.0 | 18719 / 424.9 | 19933 / 424.6 |
-| 27B | 1869 / 46.8 | 1872 / 46.8 | 1475 / 46.8 | 1542 / 46.8 |
-| 35B | 3868 / 178.4 | 3865 / 179.0 | 3032 / 179.1 | 3631 / 179.3 |
-
-</details>
-
-### Second hardware: 2x RTX 5070 Ti
-
-![W4A8 vs W4A4 on 2x RTX 5060 Ti and 2x RTX 5070 Ti: prefill pp4096 and decode tg128](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-5060-vs-5070.png)
+![W4A8 vs W4A4: KLD, PPL, same top-p, prefill pp4096, decode tg128](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-results.png)
 
 <details>
-<summary>Details</summary>
+<summary>Results</summary>
 
-To confirm the W4A8-vs-W4A4 result is not specific to one card, the canonical build (`f935b7189`) was re-run on a matched **2x RTX 5070 Ti** pair with identical flags (`--n-gpu-layers 999 --split-mode tensor --flash-attn on`, imx files, `-r 5`). W8A8 costs a few percent of prefill and leaves decode unchanged on this card too; the 5070 Ti is faster in absolute terms. These are canonical-build numbers for both boxes; the scale-variant sweep above predates the fragment-layout canonicalization and reads a few percent lower.
+imatrix mxfp4 files. KLD and PPL from `llama-perplexity --kl-divergence --file wikitext-2
+--context-size 4096` over 72 chunks against the BF16 base. Throughput from `llama-bench
+--n-gpu-layers 999 --split-mode tensor --flash-attn on --n-prompt 4096 --n-predict 128
+--n-repeat 5`.
 
-Throughput (imx files, pp4096 / tg128, -r 5), canonical build `f935b7189`:
+Accuracy:
 
-| model | 5060 Ti W4A4 | 5060 Ti W4A8 | 5070 Ti W4A4 | 5070 Ti W4A8 |
-|---|---:|---:|---:|---:|
-| 0.8B | 21951 / 410.6 | 21645 / 410.3 | 23109 / 529.0 | 22933 / 527.9 |
-| 27B | 2093 / 46.5 | 1890 / 46.5 | 2520 / 78.9 | 2389 / 78.7 |
-| 35B | 4430 / 176.6 | 4169 / 176.4 | 5793 / 242.8 | 5666 / 242.6 |
-
-A standard-quant **model** reference on the 5070 Ti (Q8_0 for 0.8B/27B; Q5_1 for 35B, since Q8_0 35B exceeds 2x16 GB): pp4096 / tg128 = 0.8B 22309 / 503.7, 27B 2164 / 49.9, 35B 5171 / 237.0. The mxfp4 W4A8 path matches or beats these at ~1/4 the file size (the 27B Q8_0 decode is VRAM-bound at 28.6 GB). This is a Q8_0/Q5_1 *model*, distinct from the Q8_1-activation MMQ path in the table above.
-
-</details>
-
-### Accuracy vs file size
-
-![PPL vs file size](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/ppl-vs-size.png)
-<details>
-<summary>Details</summary>
-
-[Qwen3.8-27B](https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF) (dense):
-
-| quant | size (GB) | PPL | GPU pp4096 | GPU tg128 | CPU pp512 | CPU tg32 |
+| model | KLD W4A4 | KLD W4A8 | PPL W4A4 | PPL W4A8 | top-p W4A4 | top-p W4A8 |
 |---|---:|---:|---:|---:|---:|---:|
-| bf16 (ref) | 53.8 | 6.424 | - | - | 108.6 | 0.7 |
-| Q8_0 (ref) | 28.6 | 6.439 | 1518.6 | 27.5 | 156.3 | 1.2 |
-| q4ks | 15.6 | 6.280 | 1488.3 | 45.8 | 220.2 | 2.0 |
-| q4_1 | 17.1 | 6.343 | 1473.9 | 42.6 | 221.3 | 1.9 |
-| **mxfp4 (imx)** | 15.7 | **6.355** | 1476.0 | 46.4 | 225.4 | 2.1 |
-| q5ks | 18.7 | 6.370 | 1445.3 | 39.4 | 212.1 | 1.8 |
-| q5_1 | 20.3 | 6.413 | 1448.0 | 37.0 | 203.5 | 1.7 |
-| iq4xs | 15.1 | 6.433 | 1557.7 | 46.7 | 190.8 | 2.1 |
-| q4_0 | 15.5 | 6.568 | 1558.0 | 46.2 | 241.4 | 2.1 |
-| q3ks | 12.1 | 6.778 | 1321.4 | 52.2 | 242.6 | 2.5 |
+| 0.8B  | 0.407429 | 0.149528 | 21.3419 | 16.1806 | 69.960 | 81.248 |
+| 27B   | 0.183180 | 0.089938 |  6.5662 |  6.3581 | 84.104 | 90.166 |
+| 35B   | 0.168713 | 0.068391 |  6.4702 |  5.9333 | 82.668 | 89.356 |
 
-[Qwen3.5-0.8B](https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF) (dense):
+Throughput, 2x RTX 5060 Ti:
 
-| quant | size (GB) | PPL | GPU pp4096 | GPU tg128 | CPU pp512 | CPU tg32 |
-|---|---:|---:|---:|---:|---:|---:|
-| bf16 (ref) | 1.6 | 15.117 | 19649.4 | 281.6 | 769.9 | 18.6 |
-| Q8_0 (ref) | 0.8 | 15.161 | 19682.1 | 388.5 | 2613.4 | 31.4 |
-| q5ks | 0.6 | 14.917 | 18953.4 | 422.7 | 2120.6 | 44.2 |
-| q5_1 | 0.6 | 15.342 | 19022.8 | 427.0 | 1463.1 | 40.2 |
-| q4_1 | 0.5 | 15.783 | 19061.7 | 440.1 | 2043.2 | 46.2 |
-| iq4xs | 0.5 | 15.872 | 19275.9 | 423.3 | 1931.4 | 50.4 |
-| q4ks | 0.5 | 15.993 | 19081.0 | 434.1 | 3304.2 | 48.7 |
-| **mxfp4 (imx)** | 0.6 | **16.179** | 18520.3 | 423.8 | 2489.4 | 48.6 |
-| q4_0 | 0.5 | 18.441 | 19470.6 | 445.8 | 1916.4 | 52.0 |
-| q3ks | 0.4 | 19.606 | 18371.6 | 415.9 | 1685.8 | 59.6 |
-
-[Qwen3.6-35B-A3B](https://huggingface.co/ggml-org/Qwen3.6-35B-A3B-GGUF) (MoE):
-
-| quant | size (GB) | PPL | GPU pp4096 | GPU tg128 | CPU pp512 | CPU tg32 |
-|---|---:|---:|---:|---:|---:|---:|
-| bf16 (ref) | 69.4 | 5.743 | - | - | 125.0 | 5.0 |
-| Q8_0 (ref) | 36.9 | 5.742 | - | - | 215.8 | 8.1 |
-| q5_1 | 26.1 | 5.759 | 3490.3 | 173.1 | 273.4 | 10.8 |
-| q5ks | 24.0 | 5.787 | 3503.3 | 172.2 | 317.6 | 11.3 |
-| q4_1 | 21.8 | 5.800 | 3541.7 | 184.4 | 344.6 | 11.4 |
-| q4ks | 19.9 | 5.806 | 3567.2 | 181.0 | 322.9 | 13.6 |
-| q4_0 | 19.8 | 5.838 | 3670.5 | 190.0 | 327.8 | 12.9 |
-| iq4xs | 18.7 | 5.856 | 3666.7 | 170.7 | 295.7 | 12.0 |
-| mxfp4 (all) | 19.0 | 5.930 | 3040.0 | 179.4 | 377.6 | 13.0 |
-| **mxfp4 (MoE recipe)** | 19.8 | **5.776** | 3084.2 | 152.8 | 337.6 | 10.1 |
-| q3ks | 15.2 | 6.196 | 3231.1 | 174.9 | 395.2 | 14.8 |
-GPU: 2x RTX 5060 Ti, -sm tensor, -fa on, -r 5. CPU: 9900X, 24 threads, -fa on, -r 5. 27B/35B bf16 and 35B Q8_0 do not fit 2x16G on GPU.
-</details>
-
-### KL divergence + same top-p vs BF16
-
-![KL divergence + same top-p](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kl-top-p.png)
-
-<details>
-<summary>Details</summary>
-
-[Qwen3.8-27B](https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF) (dense):
-
-| quant | KLD (imx) | top-p (imx) | KLD (no-imx) | top-p (no-imx) |
+| model | pp4096 W4A4 | pp4096 W4A8 | tg128 W4A4 | tg128 W4A8 |
 |---|---:|---:|---:|---:|
-| q8 (ref) | 0.0093 | 98.68 | - | - |
-| q5_1 | 0.0269 | 96.30 | 0.0335 | 95.40 |
-| q5ks | 0.0269 | 96.09 | 0.0343 | 95.51 |
-| q4_1 | 0.0460 | 94.19 | 0.0676 | 92.14 |
-| q4ks | 0.0476 | 93.94 | 0.0607 | 92.60 |
-| iq4xs | 0.0391 | 94.32 | 0.0492 | 93.36 |
-| **mxfp4** | **0.0896** | **90.16** | 0.1004 | 89.27 |
-| q4_0 | 0.0581 | 92.73 | 0.0694 | 91.65 |
-| q3ks | 0.1144 | 87.86 | 0.1740 | 85.40 |
+| 0.8B  | 21951 | 21645 | 410.6 | 410.3 |
+| 27B   |  2093 |  1890 |  46.5 |  46.5 |
+| 35B   |  4431 |  4169 | 176.6 | 176.4 |
 
-[Qwen3.5-0.8B](https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF) (dense):
+Throughput, 2x RTX 5070 Ti:
 
-| quant | KLD (imx) | top-p (imx) | KLD (no-imx) | top-p (no-imx) |
+| model | pp4096 W4A4 | pp4096 W4A8 | tg128 W4A4 | tg128 W4A8 |
 |---|---:|---:|---:|---:|
-| q8 (ref) | 0.0013 | 97.97 | - | - |
-| q5_1 | 0.0159 | 93.26 | 0.0258 | 91.69 |
-| q5ks | 0.0188 | 92.77 | 0.0262 | 91.34 |
-| q4_1 | 0.0529 | 88.29 | 0.0933 | 84.59 |
-| q4ks | 0.0523 | 88.43 | 0.0766 | 86.35 |
-| iq4xs | 0.0561 | 88.06 | 0.0695 | 86.90 |
-| **mxfp4** | **0.1494** | **81.28** | 0.1873 | 78.87 |
-| q4_0 | 0.1140 | 83.48 | 0.1436 | 81.41 |
-| q3ks | 0.2785 | 74.85 | 0.3764 | 71.45 |
-
-[Qwen3.6-35B-A3B](https://huggingface.co/ggml-org/Qwen3.6-35B-A3B-GGUF) (MoE):
-
-| quant | KLD (imx) | top-p (imx) | KLD (no-imx) | top-p (no-imx) |
-|---|---:|---:|---:|---:|
-| q8 (ref) | 0.0051 | 97.40 | - | - |
-| q5_1 | 0.0139 | 95.25 | 0.0205 | 94.24 |
-| q5ks | 0.0149 | 95.11 | 0.0209 | 94.25 |
-| q4_1 | 0.0286 | 93.12 | 0.0525 | 90.60 |
-| q4ks | 0.0291 | 93.11 | 0.0436 | 91.41 |
-| iq4xs | 0.0298 | 92.99 | 0.0388 | 91.92 |
-| **mxfp4** | **0.0679** | **89.41** | 0.0881 | 87.99 |
-| **mxfp4 (MoE recipe)** | **0.0285** | **93.43** | 0.0306 | 93.20 |
-| q4_0 | 0.0464 | 91.20 | 0.0560 | 90.33 |
-| q3ks | 0.1062 | 86.82 | 0.1520 | 84.11 |
-</details>
-
-### KV cache (`--cache-type-k/--cache-type-v mxfp4`)
-
-![KV cache: memory, GPU decode, 9900X CPU tg32, PPL by KV type (72 chunks), and UOS vs e_base KLD (f16/BF16 ref lines)](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-cache.png)
-
-<details>
-<summary>Details</summary>
-
-KV cache memory (GiB) at 100k tokens, and throughput by KV type: GPU (2x RTX 5060 Ti, 150W, Q4_1-imx weights, pp4096/tg128, --flash-attn 1) and CPU (9900X, pp512/tg32, 24 threads, --n-gpu-layers 0, MXFP4-imx weights), -r 5:
-
-| model | KV | memory (100k) | GPU pp4096 | GPU tg128 | 9900X pp512 | 9900X tg32 |
-|---|---|---:|---:|---:|---:|---:|
-| Qwen3.5-0.8B | f16 | 1.14 GiB | 19258.4 | 440.5 | 4149.2 | 42.6 |
-|  | q4_0 | 0.32 GiB | 19014.1 | 416.1 | 2839.7 | 44.2 |
-|  | q4_1 | 0.36 GiB | 19039.9 | 419.4 | 3090.6 | 44.0 |
-|  | q5_1 | 0.43 GiB | 18957.8 | 419.1 | 3032.5 | 44.0 |
-|  | **mxfp4** | **0.30 GiB** | 18958.6 | 418.1 | 3142.7 | 45.8 |
-| Qwen3.8-27B | f16 | 6.10 GiB | 1472.3 | 42.6 | 208.3 | 2.1 |
-|  | q4_0 | 1.72 GiB | 1468.6 | 42.3 | 208.0 | 2.2 |
-|  | q4_1 | 1.91 GiB | 1466.7 | 42.3 | 239.3 | 2.1 |
-|  | q5_1 | 2.29 GiB | 1466.4 | 42.2 | 234.5 | 2.2 |
-|  | **mxfp4** | **1.62 GiB** | 1466.3 | 42.3 | 230.1 | 2.2 |
-| Qwen3.6-35B-A3B | f16 | 1.91 GiB | 3542.9 | 184.4 | 380.6 | 13.3 |
-|  | q4_0 | 0.54 GiB | 3529.1 | 179.5 | 363.5 | 12.6 |
-|  | q4_1 | 0.60 GiB | 3526.7 | 180.2 | 349.7 | 12.9 |
-|  | q5_1 | 0.72 GiB | 3523.0 | 180.1 | 348.8 | 12.8 |
-|  | **mxfp4** | **0.51 GiB** | 3523.2 | 180.2 | 373.7 | 12.8 |
-
-72-chunk PPL by KV type (mxfp4-imx weights, GPU): 0.8B f16 16.1791 / q5_1 16.2197 / q4_1 16.3278 / mxfp4 16.3649 / q4_0 16.3715; 27B f16 6.3552 / q5_1 6.3578 / q4_1 6.3689 / q4_0 6.3749 / mxfp4 6.4051; 35B f16 5.9302 / q5_1 5.9330 / q4_1 5.9415 / q4_0 5.9442 / mxfp4 5.9488.
+| 0.8B  | 23109 | 22933 | 529.0 | 527.9 |
+| 27B   |  2520 |  2389 |  78.9 |  78.7 |
+| 35B   |  5793 |  5666 | 242.8 | 242.6 |
 
 </details>
-
-### KV cache scale
-UOS (Universal Optimal Scaling) lowers the mxfp4 KV-cache quantization error on 0.8B; on 27B/35B the two arms are within run noise.
-
-![UOS vs e_base KV-cache effect](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/kv-uos-vs-ebase.png)
-
-<details>
-<summary>Details</summary>
-
-mxfp4-imx weights, 2x RTX 5060 Ti; KV-cache effect = arm - control (f16 KV). KLD / PPL(Q) / top-p %:
-
-| model | control (f16 KV) | e_base (mxfp4 KV) | UOS (mxfp4 KV) | UOS KLD effect |
-|---|---|---|---|---:|
-| 0.8B | 0.149368 / 16.1791 / 81.28 | 0.169209 / 16.4305 / 79.92 | 0.166633 / 16.3649 / 80.15 | 13.0% lower |
-| 35B | 0.067925 / 5.9302 / 89.41 | 0.073610 / 5.9490 / 88.94 | 0.073175 / 5.9488 / 88.92 | within noise |
-
-The 27B KV effect itself is only +0.0025 to +0.0034 KLD over the f16 control - below the per-run std (+/-0.0019) - so neither scale formula is distinguishable there. UOS is kept as the default on the strength of the 0.8B result (and the W4A4-activation result, where UOS is also never worse).
-</details>
-
-
-## Additional information
-
-<details>
-<summary>Why W4A8, scale derivation, and controls</summary>
-
-### Why W4A8
-
-The previous native MXFP4 path quantized activations to e2m1 (W4A4). W4A8 uses e4m3 activations via the native mixed-precision `kind::mxf8f6f4` mma - the sm_120-supported form (see #19662) - cutting W4A4's KLD by ~2.4x at unchanged decode; the same instruction and mostly the same code back the mxfp8/mxfp6 (W8A8/W6A8) weight follow-ups. The standard Q8_1-activation MMQ path (`GGML_CUDA_MMQ_PREC=q8`) stays selectable and measures slightly better than W4A8 on both accuracy and prefill on this hardware (Q8_1 activations carry more precision than e4m3); W4A8 remains the default as the format-native instruction path. Prior art: the closed #27315 kept e2m1 activations; its data showed W4A4 at 84.24% same-top-P (KLD 0.1316) vs 89.99% for W4A16 without MMQ.
-
-### Scale selection
-
-The e8m0 block scale is the standard `round_to_pow2(amax / C)` with C stepped in from the format's max, so the block's largest value maps inside the representable range instead of onto its edge:
-- **e2m1 (weight): C = 4.0** (the e2m1 max is 6.0) - the codebase's existing value
-- **e4m3 (activation): C = 256** (the e4m3 max is 448) - selected by sweep; a 72-chunk A/B found the e4m3 grid insensitive to the boundary (see the W4A8 section)
-- **KV cache (UOS, default):** the MXAttention Universal Optimal Scaling boundary, Qmax=7.25, data-free (arXiv 2607.24377) - see the KV-cache scale section
-- **KV cache (UOS, default):** the MXAttention Universal Optimal Scaling boundary, Qmax=7.25, data-free (arXiv 2607.24377) - see the KV-cache scale section
-- **W4A4 activations (opt-in, `GGML_CUDA_MMQ_PREC=q4`): UOS 7.25** - the same MXAttention boundary for the e2m1 activation grid. Improves KLD/PPL vs the OCP 4.0 pin (0.8B KLD 0.408 -> 0.355, PPL 21.39 -> 20.06; 35B KLD 0.169 -> 0.150, PPL 6.47 -> 6.34; 27B within noise) - see the W4A8 section
-A single-pass "pick the scale that minimizes output error" (the natural per-tensor optimum) measured worse than the fixed stepped-in scales on an early sweep; the e8m0 scale is a power of two, so the per-tensor optimum does not generalize. The fixed stepped-in scales are the robust choice.
-
-**Optional imatrix weight quantization.** With calibration data, `llama-quantize --imatrix` searches a band of weight scales around /4.0 and picks, per 32-wide block, the one that minimizes the imatrix-weighted output error. Opt-in; the default is the calibration-free /4.0.
-
-Existing GGUFs are unaffected; dequantization is unchanged.
-
-
-### Controls
-
-**Before this PR, MXFP4 was only available for MoE expert weights (MXFP4_MOE). Dense MXFP4 is new here.** All mxfp4 quants are quantized from the ggml-org BF16 bases (Qwen3.8-27B-GGUF, Qwen3.6-35B-A3B-GGUF, Qwen3.5-0.8B-GGUF) with the measured-optimal scales (weight /4.0, activation /256); the mxfp4 PPL above is the imatrix-weighted variant (27B: 6.355 imx vs 6.449 plain). Results are from this branch (0c666e561); the W4A4-old arm is current master (fb27a525d).
-
-### How measured
-
-| metric | tool | command flags |
-|---|---|---|
-| throughput (GPU) | `llama-bench` | `--n-gpu-layers 999 --split-mode tensor --flash-attn on --n-prompt 4096 --n-predict 128 --n-repeat 5` |
-| throughput (CPU) | `llama-bench` | `--n-gpu-layers 0 --threads 24 --n-prompt 512 --n-predict 32 --n-repeat 5` |
-| PPL vs BF16 | `llama-perplexity` | `--file wikitext-2 --n-gpu-layers 999 --split-mode tensor --flash-attn 1 --context-size 4096 --batch-size 512` (72 chunks) |
-| KLD + same top-p vs BF16 | `llama-perplexity --kl-divergence` | `--file wikitext-2 --context-size 4096` against a dumped bf16 base (full corpus) |
-| W4A activation arms | env | default = W4A8 `mxf8f6f4`; `GGML_CUDA_MMQ_PREC=q4` = W4A4 (UOS e2m1 scale); `GGML_CUDA_MMQ_PREC=q8` = standard Q8_1 activations; W4A4-old = master build |
-| imatrix weight quant | `llama-quantize --imatrix` | calibration perplexity run -> importance matrix; per-block weight-scale search around /4.0 |
-| weight RMSE | `llama-quantize` / `llama-bench` | vs the dequantized BF16 |
-
-Hardware: 2x RTX 5060 Ti (throttled to 150W); CPU: AMD Ryzen 9 9900X (24 threads). All models are ggml-org; KLD and PPL are hardware-independent.
-
-</details>
-
-- NVFP4/NVFP4_MOE ftypes are intentionally out of scope. #26869 adds the dense MXFP4 and MoE NVFP4 ftypes plus their quantizers - overlapping this PR's dense-MXFP4 ftype - so the quantizer half of that work and this branch's execution half (W4A8 mma, KV cache, tests) would need reconciling if both land. Happy to split along format lines: this PR keeps MXFP4, #26869's author takes the NVFP4 portion
-- mxfp6/mxfp8 dense quants are working in my tree as the next follow-up on the same `mxf8f6f4` plumbing; the CPU-side MXFP8/MXFP6/E4M3 quantizer work (#26157, #22671, #25336) is the other half of that picture
-- Related KV cache: #6863 was the original 4-bit KV-cache feature request, #27362 (q3_K, closed unmerged) is the closest precedent for adding a KV-cache type, #28633 (filed before #28079 replaced FA_ALL_QUANTS with the GGML_CUDA_FA_QUANTS mechanism this branch uses) reports the silent CPU fallback for 4-bit KV, and #27109 reports a 4-bit-KV prefill collapse on a qwen35 hybrid (RTX 3090) - the mxfp4 KV data above shows no such collapse. #26989 (closed) requested the sibling NVFP4 KV cache
-- Related Blackwell/precision-path work: #24364 (merged) forces the W4A8 path for NVFP4 W4A16 layers on Blackwell, #26675 (merged) specifies `ggml_prec` (extended here with `GGML_PREC_MXFP8`), #19662 tracks the sm_120 block-scale mma build issue, #26704 is adjacent SM120 CUTLASS MoE prefill for MXFP4/NVFP4, #27329 reports an NVFP4 decode hang on sm_100, and #27178/#27670 report NVFP4 load/compute failures on CUDA/HIP
 
 ## Requirements
 
 - I have read and agree with the [contributing guidelines](https://github.com/ggml-org/llama.cpp/blob/master/CONTRIBUTING.md)
-- AI usage disclosure: YES - I used [pi.dev](https://pi.dev) and qwen3.6-27b and then qwen3.8-27b hosted using llama.cpp, running the code in this branch
+- AI usage disclosure: YES - [pi.dev](https://pi.dev) with qwen3.8-27b served by llama.cpp wrote
+  the code, ran the measurements and generated the chart.
