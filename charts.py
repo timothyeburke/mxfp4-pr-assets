@@ -464,6 +464,46 @@ def kv_uos():
     save(fig, "kv-uos-vs-ebase.png")
 
 
+# ------------------------------------------------------------------ 5060 Ti vs 5070 Ti (second hardware)
+# (pp4096, tg128) t/s, canonical build (f935b7189 / e467e5b5e), imx quants, -sm tensor -fa on -r 5.
+# 5060 Ti = 2x RTX 5060 Ti (spare-parts-2); 5070 Ti = 2x RTX 5070 Ti (beast). Same flags, comparable.
+HW_SPD = {
+    "0.8B": {"5060": {"w4a4": (21951, 410.6), "w4a8": (21645, 410.3)},
+             "5070": {"w4a4": (23109, 529.0), "w4a8": (22933, 527.9)}},
+    "27B":  {"5060": {"w4a4": (2093, 46.5), "w4a8": (1890, 46.5)},
+             "5070": {"w4a4": (2520, 78.9), "w4a8": (2389, 78.7)}},
+    "35B":  {"5060": {"w4a4": (4430, 176.6), "w4a8": (4169, 176.4)},
+             "5070": {"w4a4": (5793, 242.8), "w4a8": (5666, 242.6)}},
+}
+
+def hw_5060_5070():
+    from matplotlib.ticker import FuncFormatter
+    fig, ax = new_figure(1, 2, w=5.6, h=4.2)
+    models = list(HW_SPD.keys())
+    panels = [("prefill pp4096 (t/s)", 0, [1000, 2000, 5000, 10000, 20000, 40000]),
+              ("decode tg128 (t/s)", 1, [25, 50, 100, 200, 400, 600])]
+    arms = [("5060", "w4a4", None), ("5060", "w4a8", None),
+            ("5070", "w4a4", "//"), ("5070", "w4a8", "//")]
+    for col, (title, i, yticks) in enumerate(panels):
+        style_axes(ax[col], title=title)
+        ax[col].set_yscale("log")
+        ax[col].set_yticks(yticks)
+        ax[col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
+        ax[col].tick_params(which="minor", labelleft=False, labelbottom=False)
+        x = np.arange(len(models))
+        w = 0.19
+        for si, (hw, a, h) in enumerate(arms):
+            v = [HW_SPD[m][hw][a][i] for m in models]
+            b = ax[col].bar(x + (si - 1.5) * w, v, width=w,
+                           color=PALETTE["mx"] if a == "w4a8" else PALETTE["other"],
+                           hatch=h, edgecolor="white", linewidth=0.4, label=f"{hw} {a}")
+            ax[col].bar_label(b, fmt="%.0f", fontsize=6, color=PALETTE["text"], padding=2, rotation=45)
+        ax[col].set_xticks(x); ax[col].set_xticklabels(models)
+        allv = [HW_SPD[m][hw][a][i] for m in models for hw in ("5060", "5070") for a in ("w4a4", "w4a8")]
+        ax[col].set_ylim(min(allv) * 0.6, max(allv) * 1.7)
+        ax[col].legend(frameon=False, fontsize=7, loc="upper right", ncol=2)
+    save(fig, "w4a8-5060-vs-5070.png")
+
 if __name__ == "__main__":
     import sys
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -477,3 +517,5 @@ if __name__ == "__main__":
         kv_uos()
     if which in ("all", "w4a8"):
         w4a8_vs_w4a4()
+    if which in ("all", "hw"):
+        hw_5060_5070()

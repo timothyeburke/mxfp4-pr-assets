@@ -76,6 +76,27 @@ Throughput (imx files, pp4096 / tg128, -r 5):
 
 </details>
 
+### Second hardware: 2x RTX 5070 Ti
+
+![W4A8 vs W4A4 on 2x RTX 5060 Ti and 2x RTX 5070 Ti: prefill pp4096 and decode tg128](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-5060-vs-5070.png)
+
+<details>
+<summary>Details</summary>
+
+To confirm the W4A8-vs-W4A4 result is not specific to one card, the canonical build (`f935b7189`) was re-run on a matched **2x RTX 5070 Ti** pair with identical flags (`--n-gpu-layers 999 --split-mode tensor --flash-attn on`, imx files, `-r 5`). W8A8 costs a few percent of prefill and leaves decode unchanged on this card too; the 5070 Ti is faster in absolute terms. These are canonical-build numbers for both boxes; the scale-variant sweep above predates the fragment-layout canonicalization and reads a few percent lower.
+
+Throughput (imx files, pp4096 / tg128, -r 5), canonical build `f935b7189`:
+
+| model | 5060 Ti W4A4 | 5060 Ti W4A8 | 5070 Ti W4A4 | 5070 Ti W4A8 |
+|---|---:|---:|---:|---:|
+| 0.8B | 21951 / 410.6 | 21645 / 410.3 | 23109 / 529.0 | 22933 / 527.9 |
+| 27B | 2093 / 46.5 | 1890 / 46.5 | 2520 / 78.9 | 2389 / 78.7 |
+| 35B | 4430 / 176.6 | 4169 / 176.4 | 5793 / 242.8 | 5666 / 242.6 |
+
+A standard-quant **model** reference on the 5070 Ti (Q8_0 for 0.8B/27B; Q5_1 for 35B, since Q8_0 35B exceeds 2x16 GB): pp4096 / tg128 = 0.8B 22309 / 503.7, 27B 2164 / 49.9, 35B 5171 / 237.0. The mxfp4 W4A8 path matches or beats these at ~1/4 the file size (the 27B Q8_0 decode is VRAM-bound at 28.6 GB). This is a Q8_0/Q5_1 *model*, distinct from the Q8_1-activation MMQ path in the table above.
+
+</details>
+
 ### Accuracy vs file size
 
 ![PPL vs file size](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/ppl-vs-size.png)

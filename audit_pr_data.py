@@ -115,6 +115,17 @@ def audit_uos_table(md):
             close(ppl, d["ppl"][i], 0.0005, f"UOS {model} {part} ppl")
             close(tp, d["topp"][i], 0.005, f"UOS {model} {part} topp")
 
+def audit_hw_table(md):
+    for _model, cells in table_rows(md, "| model | 5060 Ti W4A4 |"):
+        model = cells[0]
+        if model not in charts.HW_SPD:
+            errors.append(f"HW: no chart row for {model!r}")
+            continue
+        for ci, (hw, a) in enumerate([("5060", "w4a4"), ("5060", "w4a8"),
+                                      ("5070", "w4a4"), ("5070", "w4a8")]):
+            pp, tg = (fnum(x) for x in cells[1 + ci].split("/"))
+            close(pp, charts.HW_SPD[model][hw][a][0], 0.5, f"HW {model} {hw} {a} pp")
+            close(tg, charts.HW_SPD[model][hw][a][1], 0.1, f"HW {model} {hw} {a} tg")
 
 def main():
     md = open(BODY).read()
@@ -123,6 +134,7 @@ def main():
     audit_kv_table(md)
     audit_w4a8_table(md)
     audit_uos_table(md)
+    audit_hw_table(md)
     if errors:
         print(f"FAIL: {len(errors)} mismatch(es):")
         for e in errors:
