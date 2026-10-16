@@ -4,7 +4,17 @@ Adds a W4A8 path for MXFP4 `mul_mat` on Blackwell. `src1` is quantized to e4m3 w
 scales and multiplied against the e2m1 weights with the block-scaled `kind::mxf8f6f4` MMA
 (`m16n8k32`). MXFP4 on Blackwell uses this path by default.
 
-- `GGML_PREC_MXFP8` added to `ggml_prec`.
+This is the CUDA mixed-precision MMA piece of [timlikesai/llama.cpp#14](https://github.com/timlikesai/llama.cpp/pull/14),
+which also carries the dense MXFP4 ftype, imatrix weight quantization and an MXFP4 KV cache. It is
+split out so the change that raises MXFP4 accuracy can be reviewed on its own: it only affects how
+`src1` is quantized and which MMA instruction runs, the weight format is unchanged, and it applies
+to `master` without the rest of #14. Dense model support is planned for a subsequent PR.
+
+- `GGML_PREC_MXFP8` added to `ggml_prec`. e4m3 is a distinct src1 rank from `GGML_PREC_Q8`:
+  e4m3 codes with one ue8m0 power-of-two scale per 32 values, matching the MXFP4 weight scale
+  groups, instead of q8_1 fp32 block scales. `ggml_prec` values are stored in `op_params` and
+  read by the backend, so the new rank needs no change outside the enum, like `GGML_PREC_Q4`.
+  `GGML_CUDA_MMQ_PREC` stays a debug override; the enum is how a graph asks for e4m3.
 - `mma_block_scaled_fp4` takes a `prec_src1` template argument and emits
   `mma.sync.aligned.kind::mxf8f6f4.block_scale.scale_vec::1X.m16n8k32.row.col.f32.e2m1.e4m3.f32.ue8m0`.
   The existing `kind::mxf4` `m16n8k64` e2m1 x e2m1 instruction is kept for `GGML_PREC_Q4`.
@@ -25,10 +35,28 @@ scales and multiplied against the e2m1 weights with the block-scaled `kind::mxf8
 <details>
 <summary>Results</summary>
 
-imatrix mxfp4 files. KLD and PPL from `llama-perplexity --kl-divergence --file wikitext-2
---context-size 4096` over 72 chunks against the BF16 base. Throughput from `llama-bench
---n-gpu-layers 999 --split-mode tensor --flash-attn on --n-prompt 4096 --n-predict 128
---n-repeat 5`. Accuracy is hardware-invariant; the 2x RTX 5070 Ti run agrees within rounding.
+Models, quantized to MXFP4 with imatrix by [timlikesai/llama.cpp#14](https://github.com/timlikesai/llama.cpp/pull/14).
+Each repo also carries the imatrix file that was used, so the quants are reproducible:
+
+- [Qwen3.5-0.8B-MXFP4](https://huggingface.co/timlikesai/Qwen3.5-0.8B-MXFP4) (dense)
+- [Qwen3.8-27B-MXFP4](https://huggingface.co/timlikesai/Qwen3.8-27B-MXFP4) (dense)
+- [Qwen3.6-35B-A3B-MXFP4](https://huggingface.co/timlikesai/Qwen3.6-35B-A3B-MXFP4) (MoE, exercises `mul_mat_id`)
+
+The tables are the `*-mxfp4-imx.gguf` file in each repo. Arms: `w4a4` is `master`, which is the current MXFP4 behavior;
+`w4a8` is this branch at its default; `q8` is this branch with `GGML_CUDA_MMQ_PREC=q8`, which
+selects q8_1 activations.
+
+Accuracy, KLD and PPL against BF16 reference logits recorded from the unquantized base:
+
+    llama-perplexity -m <model>-mxfp4-imx.gguf -f wikitext-2-raw/wiki.test.raw \
+      --kl-divergence --kl-divergence-base <base>.bin \
+      -c 4096 --chunks 72 -ngl 999 -sm tensor -fa on --cache-type-k f16 --cache-type-v f16
+
+Throughput:
+
+    llama-bench -m <model>-mxfp4-imx.gguf -p 4096 -n 128 -ngl 999 -sm tensor -fa on -r 5
+
+Accuracy is hardware-invariant; the 2x RTX 5060 Ti run agrees within rounding.
 
 Accuracy:
 
