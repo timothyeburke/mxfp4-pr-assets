@@ -28,31 +28,49 @@ scales and multiplied against the e2m1 weights with the block-scaled `kind::mxf8
 imatrix mxfp4 files. KLD and PPL from `llama-perplexity --kl-divergence --file wikitext-2
 --context-size 4096` over 72 chunks against the BF16 base. Throughput from `llama-bench
 --n-gpu-layers 999 --split-mode tensor --flash-attn on --n-prompt 4096 --n-predict 128
---n-repeat 5`.
+--n-repeat 5`. Accuracy is hardware-invariant; the 2x RTX 5070 Ti run agrees within rounding.
 
 Accuracy:
 
-| model | KLD W4A4 | KLD W4A8 | PPL W4A4 | PPL W4A8 | top-p W4A4 | top-p W4A8 |
-|---|---:|---:|---:|---:|---:|---:|
-| 0.8B  | 0.407429 | 0.149528 | 21.3419 | 16.1806 | 69.960 | 81.248 |
-| 27B   | 0.183180 | 0.089938 |  6.5662 |  6.3581 | 84.104 | 90.166 |
-| 35B   | 0.168713 | 0.068391 |  6.4702 |  5.9333 | 82.668 | 89.356 |
-
-Throughput, 2x RTX 5060 Ti:
-
-| model | pp4096 W4A4 | pp4096 W4A8 | tg128 W4A4 | tg128 W4A8 |
-|---|---:|---:|---:|---:|
-| 0.8B  | 21951 | 21645 | 410.6 | 410.3 |
-| 27B   |  2093 |  1890 |  46.5 |  46.5 |
-| 35B   |  4431 |  4169 | 176.6 | 176.4 |
+| model | arm | KLD | PPL | top-p |
+|---|---|---:|---:|---:|
+| 0.8B  | w4a4 | 0.407429 | 21.3419 | 69.960 |
+| 0.8B  | w4a8 | 0.149528 | 16.1806 | 81.248 |
+| 0.8B  | q8   | 0.143151 | 16.0858 | 81.646 |
+| 27B   | w4a4 | 0.183180 |  6.5662 | 84.104 |
+| 27B   | w4a8 | 0.089938 |  6.3581 | 90.166 |
+| 27B   | q8   | 0.085955 |  6.3446 | 90.500 |
+| 35B   | w4a4 | 0.168713 |  6.4702 | 82.668 |
+| 35B   | w4a8 | 0.068391 |  5.9333 | 89.356 |
+| 35B   | q8   | 0.065711 |  5.9161 | 89.571 |
 
 Throughput, 2x RTX 5070 Ti:
 
-| model | pp4096 W4A4 | pp4096 W4A8 | tg128 W4A4 | tg128 W4A8 |
-|---|---:|---:|---:|---:|
-| 0.8B  | 23109 | 22933 | 529.0 | 527.9 |
-| 27B   |  2520 |  2389 |  78.9 |  78.7 |
-| 35B   |  5793 |  5666 | 242.8 | 242.6 |
+| model | arm | pp4096 | tg128 |
+|---|---|---:|---:|
+| 0.8B  | w4a4 | 22864 | 527.5 |
+| 0.8B  | w4a8 | 22821 | 527.9 |
+| 0.8B  | q8   | 22261 | 528.2 |
+| 27B   | w4a4 |  2518 |  78.9 |
+| 27B   | w4a8 |  2388 |  78.7 |
+| 27B   | q8   |  2186 |  78.8 |
+| 35B   | w4a4 |  5755 | 242.5 |
+| 35B   | w4a8 |  5644 | 242.7 |
+| 35B   | q8   |  5260 | 242.4 |
+
+Throughput, 2x RTX 5060 Ti:
+
+| model | arm | pp4096 | tg128 |
+|---|---|---:|---:|
+| 0.8B  | w4a4 | 21898 | 415.0 |
+| 0.8B  | w4a8 | 21594 | 414.6 |
+| 0.8B  | q8   | 20726 | 414.7 |
+| 27B   | w4a4 |  2077 |  46.5 |
+| 27B   | w4a8 |  1890 |  46.5 |
+| 27B   | q8   |  1674 |  46.5 |
+| 35B   | w4a4 |  4323 | 177.4 |
+| 35B   | w4a8 |  4163 | 177.5 |
+| 35B   | q8   |  3861 | 177.4 |
 
 </details>
 

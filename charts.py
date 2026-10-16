@@ -22,6 +22,7 @@ OUT = os.path.dirname(os.path.abspath(__file__))
 PALETTE = {
     "mx":      "#76B900",   # mxfp4 (NVIDIA green)
     "other":   "#9AA4B2",   # everything else (all refs: bf16, Q8_0, q4*, q5*, q3*)
+    "q8":      "#3B6FB5",   # Q8_1 activations (blue)
     "text":    "#1F2933",
     "muted":   "#6B7280",
     "grid":    "#ECEFF3",
@@ -468,12 +469,12 @@ def kv_uos():
 # (pp4096, tg128) t/s, canonical build (f935b7189 / e467e5b5e), imx quants, -sm tensor -fa on -r 5.
 # 5060 Ti = 2x RTX 5060 Ti (spare-parts-2); 5070 Ti = 2x RTX 5070 Ti (beast). Same flags, comparable.
 HW_SPD = {
-    "0.8B": {"5060": {"w4a4": (21951, 410.6), "w4a8": (21645, 410.3)},
-             "5070": {"w4a4": (23109, 529.0), "w4a8": (22933, 527.9)}},
-    "27B":  {"5060": {"w4a4": (2093, 46.5), "w4a8": (1890, 46.5)},
-             "5070": {"w4a4": (2520, 78.9), "w4a8": (2389, 78.7)}},
-    "35B":  {"5060": {"w4a4": (4430, 176.6), "w4a8": (4169, 176.4)},
-             "5070": {"w4a4": (5793, 242.8), "w4a8": (5666, 242.6)}},
+    "0.8B": {"5060": {"w4a4": (21898, 415.0), "w4a8": (21594, 414.6), "q8": (20726, 414.7)},
+             "5070": {"w4a4": (22864, 527.5), "w4a8": (22821, 527.9), "q8": (22261, 528.2)}},
+    "27B":  {"5060": {"w4a4": (2077, 46.5), "w4a8": (1890, 46.5), "q8": (1674, 46.5)},
+             "5070": {"w4a4": (2518, 78.9), "w4a8": (2388, 78.7), "q8": (2186, 78.8)}},
+    "35B":  {"5060": {"w4a4": (4323, 177.4), "w4a8": (4163, 177.5), "q8": (3861, 177.4)},
+             "5070": {"w4a4": (5755, 242.5), "w4a8": (5644, 242.7), "q8": (5260, 242.4)}},
 }
 
 def hw_5060_5070():
@@ -482,8 +483,8 @@ def hw_5060_5070():
     models = list(HW_SPD.keys())
     panels = [("prefill pp4096 (t/s)", 0, [1000, 2000, 5000, 10000, 20000, 40000]),
               ("decode tg128 (t/s)", 1, [25, 50, 100, 200, 400, 600])]
-    arms = [("5060", "w4a4", None), ("5060", "w4a8", None),
-            ("5070", "w4a4", "//"), ("5070", "w4a8", "//")]
+    arms = [("5060", "w4a4", None), ("5060", "w4a8", None), ("5060", "q8", None),
+            ("5070", "w4a4", "//"), ("5070", "w4a8", "//"), ("5070", "q8", "//")]
     for col, (title, i, yticks) in enumerate(panels):
         style_axes(ax[col], title=title)
         ax[col].set_yscale("log")
@@ -491,15 +492,15 @@ def hw_5060_5070():
         ax[col].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
         ax[col].tick_params(which="minor", labelleft=False, labelbottom=False)
         x = np.arange(len(models))
-        w = 0.19
+        w = 0.15
         for si, (hw, a, h) in enumerate(arms):
             v = [HW_SPD[m][hw][a][i] for m in models]
-            b = ax[col].bar(x + (si - 1.5) * w, v, width=w,
-                           color=PALETTE["mx"] if a == "w4a8" else PALETTE["other"],
+            b = ax[col].bar(x + (si - 2.5) * w, v, width=w,
+                           color={"w4a4": PALETTE["other"], "w4a8": PALETTE["mx"], "q8": PALETTE["q8"]}[a],
                            hatch=h, edgecolor="white", linewidth=0.4, label=f"{hw} {a}")
             ax[col].bar_label(b, fmt="%.0f", fontsize=6, color=PALETTE["text"], padding=2, rotation=45)
         ax[col].set_xticks(x); ax[col].set_xticklabels(models)
-        allv = [HW_SPD[m][hw][a][i] for m in models for hw in ("5060", "5070") for a in ("w4a4", "w4a8")]
+        allv = [HW_SPD[m][hw][a][i] for m in models for hw in ("5060", "5070") for a in ("w4a4", "w4a8", "q8")]
         ax[col].set_ylim(min(allv) * 0.6, max(allv) * 1.7)
         ax[col].legend(frameon=False, fontsize=7, loc="upper right", ncol=2)
     save(fig, "w4a8-5060-vs-5070.png")
@@ -507,12 +508,15 @@ def hw_5060_5070():
 # ------------------------------------------------------------------ W4A8 vs W4A4 (this branch)
 # imx quants, canonical build, 2x RTX 5060 Ti. (kld, ppl, topp, pp4096, tg128)
 W4A_RES = {
-    "0.8B": {"w4a4": (0.407429, 21.3419, 69.960, 21951, 410.6),
-             "w4a8": (0.149528, 16.1806, 81.248, 21645, 410.3)},
-    "27B":  {"w4a4": (0.183180,  6.5662, 84.104,  2093,  46.5),
-             "w4a8": (0.089938,  6.3581, 90.166,  1890,  46.5)},
-    "35B":  {"w4a4": (0.168713,  6.4702, 82.668,  4431, 176.6),
-             "w4a8": (0.068391,  5.9333, 89.356,  4169, 176.4)},
+    "0.8B": {"w4a4": (0.407429, 21.3419, 69.960, 21898, 415.0),
+             "w4a8": (0.149528, 16.1806, 81.248, 21594, 414.6),
+             "q8":   (0.143151, 16.0858, 81.646, 20726, 414.7)},
+    "27B":  {"w4a4": (0.183180,  6.5662, 84.104,  2077, 46.5),
+             "w4a8": (0.089938,  6.3581, 90.166,  1890, 46.5),
+             "q8":   (0.085955,  6.3446, 90.500,  1674, 46.5)},
+    "35B":  {"w4a4": (0.168713,  6.4702, 82.668,  4323, 177.4),
+             "w4a8": (0.068391,  5.9333, 89.356,  4163, 177.5),
+             "q8":   (0.065711,  5.9161, 89.571,  3861, 177.4)},
 }
 
 def w4a8_results():
@@ -530,15 +534,15 @@ def w4a8_results():
         ax[p].set_yticks(yticks)
         ax[p].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
         ax[p].tick_params(which="minor", labelleft=False, labelbottom=False)
-        x = np.arange(len(models)); w = 0.34
-        for si, arm in enumerate(("w4a4", "w4a8")):
+        x = np.arange(len(models)); w = 0.27
+        for si, arm in enumerate(("w4a4", "w4a8", "q8")):
             v = [W4A_RES[m][arm][idx] for m in models]
-            b = ax[p].bar(x + (si - 0.5) * w, v, width=w,
-                          color=PALETTE["mx"] if arm == "w4a8" else PALETTE["other"],
+            b = ax[p].bar(x + (si - 1.0) * w, v, width=w,
+                          color={"w4a4": PALETTE["other"], "w4a8": PALETTE["mx"], "q8": PALETTE["q8"]}[arm],
                           edgecolor="white", linewidth=0.4, label=arm)
-            ax[p].bar_label(b, fmt=fmt, fontsize=7.5, color=PALETTE["text"], padding=2)
+            ax[p].bar_label(b, fmt=fmt, fontsize=7.5, color=PALETTE["text"], padding=2, rotation=90)
         ax[p].set_xticks(x); ax[p].set_xticklabels(models)
-        allv = [W4A_RES[m][a][idx] for m in models for a in ("w4a4", "w4a8")]
+        allv = [W4A_RES[m][a][idx] for m in models for a in ("w4a4", "w4a8", "q8")]
         ax[p].set_ylim(min(allv) * 0.85, max(allv) * 1.22)
         ax[p].legend(frameon=False, fontsize=8, loc="upper right")
     ax[5].set_visible(False)

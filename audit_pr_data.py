@@ -127,9 +127,32 @@ def audit_hw_table(md):
             close(pp, charts.HW_SPD[model][hw][a][0], 0.5, f"HW {model} {hw} {a} pp")
             close(tg, charts.HW_SPD[model][hw][a][1], 0.1, f"HW {model} {hw} {a} tg")
 
+def audit_w4a_results(md):
+    # accuracy: | model | arm | KLD | PPL | top-p |  (5060 Ti values, hardware-invariant)
+    for _model, cells in table_rows(md, "| model | arm | KLD | PPL | top-p |"):
+        model, arm = cells[0], cells[1]
+        if model not in charts.W4A_RES:
+            errors.append(f"RES: no chart row for {model!r}"); continue
+        r = charts.W4A_RES[model][arm]
+        close(fnum(cells[2]), r[0], 0.0000005, f"RES acc {model} {arm} kld")
+        close(fnum(cells[3]), r[1], 0.0005, f"RES acc {model} {arm} ppl")
+        close(fnum(cells[4]), r[2], 0.0005, f"RES acc {model} {arm} topp")
+    # throughput: two tables share one header | model | arm | pp4096 | tg128 |
+    # the first nine rows are 5070 Ti, the next nine are 5060 Ti (HW_SPD)
+    spd = [c for _m, c in table_rows(md, "| model | arm | pp4096 | tg128 |")]
+    for i, cells in enumerate(spd):
+        model, arm = cells[0], cells[1]
+        if model not in charts.HW_SPD:
+            errors.append(f"RES spd: no chart row for {model!r}"); continue
+        hw = "5070" if i < 9 else "5060"
+        pp, tg = charts.HW_SPD[model][hw][arm]
+        close(fnum(cells[2]), pp, 0.6, f"RES spd {model} {hw} {arm} pp")
+        close(fnum(cells[3]), tg, 0.1, f"RES spd {model} {hw} {arm} tg")
+
 def main():
     md = open(BODY).read()
     audit_ppl_tables(md)
+
     audit_kl_tables(md)
     audit_kv_table(md)
     audit_w4a8_table(md)
