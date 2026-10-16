@@ -519,6 +519,44 @@ W4A_RES = {
              "q8":   (0.0657,  5.9126, 89.538,  5260, 242.4)},
 }
 
+# 27B accuracy-vs-size, single-campaign sweep (fresh, comparable to the mxfp4 arms above)
+PARETO_27B = {
+    "mxfp4-w4a4": (15.66, 6.5392), "mxfp4-w4a8": (15.66, 6.3619),
+    "Q4_0": (15.48, 6.4719), "Q4_1": (17.08, 6.3317),
+    "Q4_K_M": (18.97, 6.4529), "Q5_1": (20.28, 6.5052),
+    "Q8_0": (28.60, 6.4424),
+}
+
+def pareto_panel(ax, rows, title, fs=10):
+    """File size (GB) on x, wikitext-2 PPL on y (lower is better). Standard quants gray;
+    mxfp4 W4A4 hollow / W4A8 star (green) with an arrow showing the move."""
+    ax.set_title(title, fontsize=fs)
+    ax.set_xlabel("file size (GB)", fontsize=fs - 2)
+    ax.set_ylabel("PPL (lower better)", fontsize=fs - 2)
+    for q in ("Q4_0", "Q4_1", "Q4_K_M", "Q5_1", "Q8_0"):
+        if q in rows:
+            s, p = rows[q]
+            ax.scatter([s], [p], s=40, c=PALETTE["other"], marker="o", zorder=3, edgecolors="white", linewidths=0.6)
+            ax.annotate(q, (s, p), textcoords="offset points", xytext=(5, 0), fontsize=7, color=PALETTE["muted"], ha="left", va="center")
+    s4, p4 = rows["mxfp4-w4a4"]
+    s8, p8 = rows["mxfp4-w4a8"]
+    ax.scatter([s4], [p4], s=110, c="white", marker="o", edgecolors=PALETTE["mx"], linewidths=2.0, zorder=5)
+    ax.scatter([s8], [p8], s=200, c=PALETTE["mx"], marker="*", zorder=6, edgecolors="white", linewidths=0.8)
+    ax.annotate("", xy=(s8, p8), xytext=(s4, p4),
+                arrowprops=dict(arrowstyle="-|>", color="#C0392B", lw=1.6, connectionstyle="arc3,rad=0.15"), zorder=4)
+    ax.annotate("W4A4 (today)", (s4, p4), textcoords="offset points", xytext=(-6, 8), fontsize=7.5, color="#C0392B", ha="right")
+    ax.annotate("W4A8 (this PR)", (s8, p8), textcoords="offset points", xytext=(8, -12), fontsize=7.5, color=PALETTE["mx"], ha="left", fontweight="bold")
+    sizes = [rows[q][0] for q in rows]
+    ax.set_xlim(min(sizes) * 0.97, max(sizes) * 1.05)
+    from matplotlib.ticker import MaxNLocator, FuncFormatter
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 2.5, 5, 10]))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.2f}" if v < 10 else f"{v:.1f}"))
+    vals = [rows[q][1] for q in rows]
+    ymin, ymax = min(vals), max(vals)
+    pad = (ymax - ymin) * 0.18
+    ax.set_ylim(ymin - pad, ymax + pad)
+    return ax
+
 def w4a8_results():
     from matplotlib.ticker import FuncFormatter
     fig, ax = new_figure(2, 3, w=4.6, h=3.6)
@@ -545,7 +583,7 @@ def w4a8_results():
         allv = [W4A_RES[m][a][idx] for m in models for a in ("w4a4", "w4a8", "q8")]
         ax[p].set_ylim(min(allv) * 0.85, max(allv) * 1.22)
         ax[p].legend(frameon=False, fontsize=8, loc="upper right")
-    ax[5].set_visible(False)
+    pareto_panel(ax[5], PARETO_27B, "27B: accuracy vs file size (this PR)", fs=9)
     save(fig, "w4a8-results.png")
 
 if __name__ == "__main__":
