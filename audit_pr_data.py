@@ -12,6 +12,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import charts  # noqa: E402
 
+ARM_LABEL = {"mxfp4-mxfp4": "w4a4", "mxfp4-mxfp8": "w4a8", "mxfp4-q8": "q8"}
+
 BODY = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "PR-body.md")
 
@@ -115,39 +117,33 @@ def audit_uos_table(md):
             close(ppl, d["ppl"][i], 0.0005, f"UOS {model} {part} ppl")
             close(tp, d["topp"][i], 0.005, f"UOS {model} {part} topp")
 
-def audit_hw_table(md):
-    for _model, cells in table_rows(md, "| model | 5060 Ti W4A4 |"):
-        model = cells[0]
-        if model not in charts.HW_SPD:
-            errors.append(f"HW: no chart row for {model!r}")
-            continue
-        for ci, (hw, a) in enumerate([("5060", "w4a4"), ("5060", "w4a8"),
-                                      ("5070", "w4a4"), ("5070", "w4a8")]):
-            pp, tg = (fnum(x) for x in cells[1 + ci].split("/"))
-            close(pp, charts.HW_SPD[model][hw][a][0], 0.5, f"HW {model} {hw} {a} pp")
-            close(tg, charts.HW_SPD[model][hw][a][1], 0.1, f"HW {model} {hw} {a} tg")
-
 def audit_w4a_results(md):
-    # accuracy: | model | arm | KLD | PPL | top-p |  (5060 Ti values, hardware-invariant)
+    # accuracy: | model | arm | KLD | PPL | top-p |  (2x RTX 5070 Ti)
     for _model, cells in table_rows(md, "| model | arm | KLD | PPL | top-p |"):
         model, arm = cells[0], cells[1]
         if model not in charts.W4A_RES:
             errors.append(f"RES: no chart row for {model!r}"); continue
+        if arm in ARM_LABEL:
+            arm = ARM_LABEL[arm]
+        if arm not in charts.W4A_RES[model]:
+            errors.append(f"RES: no chart row for {model} {arm!r}"); continue
         r = charts.W4A_RES[model][arm]
         close(fnum(cells[2]), r[0], 0.0000005, f"RES acc {model} {arm} kld")
         close(fnum(cells[3]), r[1], 0.0005, f"RES acc {model} {arm} ppl")
         close(fnum(cells[4]), r[2], 0.0005, f"RES acc {model} {arm} topp")
-    # throughput: two tables share one header | model | arm | pp4096 | tg128 |
-    # the first nine rows are 5070 Ti, the next nine are 5060 Ti (HW_SPD)
+    # throughput: | model | arm | pp4096 | tg128 |  (2x RTX 5070 Ti, HW_SPD)
     spd = [c for _m, c in table_rows(md, "| model | arm | pp4096 | tg128 |")]
-    for i, cells in enumerate(spd):
+    for cells in spd:
         model, arm = cells[0], cells[1]
         if model not in charts.HW_SPD:
             errors.append(f"RES spd: no chart row for {model!r}"); continue
-        hw = "5070" if i < 9 else "5060"
-        pp, tg = charts.HW_SPD[model][hw][arm]
-        close(fnum(cells[2]), pp, 0.6, f"RES spd {model} {hw} {arm} pp")
-        close(fnum(cells[3]), tg, 0.1, f"RES spd {model} {hw} {arm} tg")
+        if arm in ARM_LABEL:
+            arm = ARM_LABEL[arm]
+        if arm not in charts.HW_SPD[model]["5070"]:
+            errors.append(f"RES spd: no chart row for {model} {arm!r}"); continue
+        pp, tg = charts.HW_SPD[model]["5070"][arm]
+        close(fnum(cells[2]), pp, 0.6, f"RES spd {model} {arm} pp")
+        close(fnum(cells[3]), tg, 0.1, f"RES spd {model} {arm} tg")
 
 def main():
     md = open(BODY).read()
@@ -157,7 +153,7 @@ def main():
     audit_kv_table(md)
     audit_w4a8_table(md)
     audit_uos_table(md)
-    audit_hw_table(md)
+    audit_w4a_results(md)
     if errors:
         print(f"FAIL: {len(errors)} mismatch(es):")
         for e in errors:
