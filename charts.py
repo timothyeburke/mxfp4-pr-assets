@@ -490,31 +490,40 @@ W4A_RES = {
 
 # 27B accuracy-vs-size, single-campaign sweep (fresh, comparable to the mxfp4 arms above)
 PARETO_27B = {
-    "mxfp4-w4a4": (15.66, 6.5392), "mxfp4-w4a8": (15.66, 6.3619),
+    "mxfp4-mxfp4": (15.66, 6.5477), "mxfp4-mxfp8": (15.66, 6.3524), "mxfp4-q8": (15.66, 6.3469),
     "Q4_0": (15.48, 6.4719), "Q4_1": (17.08, 6.3317),
     "Q4_K_M": (18.97, 6.4529), "Q5_1": (20.28, 6.5052),
     "Q8_0": (28.60, 6.4424),
 }
 
 def pareto_panel(ax, rows, title, fs=10):
-    """File size (GB) on x, wikitext-2 PPL on y (lower is better). Standard quants gray;
-    mxfp4 W4A4 hollow / W4A8 star (green) with an arrow showing the move."""
+    """File size (GB) on x, wikitext-2 PPL on y (lower is better). Standard quants and the three
+    mxfp4 activation arms are filled circles; the arms share one x because they read one file."""
     ax.set_title(title, fontsize=fs)
     ax.set_xlabel("file size (GB)", fontsize=fs - 2)
     ax.set_ylabel("PPL (lower better)", fontsize=fs - 2)
+    # the mxfp8 and q8 arms sit 0.005 PPL apart, so their labels are staggered and the green
+    # dot is drawn last to stay visible over the blue one
+    ARMS = (("mxfp4-mxfp4", PALETTE["other"], (10, 4)),
+            ("mxfp4-q8", PALETTE["q8"], (10, -2)),
+            ("mxfp4-mxfp8", PALETTE["mx"], (10, 13)))
+    STD_OFF = {}
     for q in ("Q4_0", "Q4_1", "Q4_K_M", "Q5_1", "Q8_0"):
         if q in rows:
-            s, p = rows[q]
-            ax.scatter([s], [p], s=40, c=PALETTE["other"], marker="o", zorder=3, edgecolors="white", linewidths=0.6)
-            ax.annotate(q, (s, p), textcoords="offset points", xytext=(5, 0), fontsize=7, color=PALETTE["muted"], ha="left", va="center")
-    s4, p4 = rows["mxfp4-w4a4"]
-    s8, p8 = rows["mxfp4-w4a8"]
-    ax.scatter([s4], [p4], s=110, c="white", marker="o", edgecolors=PALETTE["mx"], linewidths=2.0, zorder=5)
-    ax.scatter([s8], [p8], s=200, c=PALETTE["mx"], marker="*", zorder=6, edgecolors="white", linewidths=0.8)
-    ax.annotate("", xy=(s8, p8), xytext=(s4, p4),
-                arrowprops=dict(arrowstyle="-|>", color="#C0392B", lw=1.6, connectionstyle="arc3,rad=0.15"), zorder=4)
-    ax.annotate("W4A4 (today)", (s4, p4), textcoords="offset points", xytext=(-6, 8), fontsize=7.5, color="#C0392B", ha="right")
-    ax.annotate("W4A8 (this PR)", (s8, p8), textcoords="offset points", xytext=(8, -12), fontsize=7.5, color=PALETTE["mx"], ha="left", fontweight="bold")
+            sz, pp = rows[q]
+            ax.scatter([sz], [pp], s=46, c=PALETTE["other"], marker="o", zorder=3,
+                       edgecolors="white", linewidths=0.6)
+            ax.annotate(q, (sz, pp), textcoords="offset points", xytext=STD_OFF.get(q, (6, 0)),
+                        fontsize=7, color=PALETTE["muted"], ha="left", va="center")
+    for q, color, off in ARMS:
+        if q not in rows:
+            continue
+        sz, pp = rows[q]
+        ax.scatter([sz], [pp], s=135, c=color, marker="o", zorder=6,
+                   edgecolors="white", linewidths=0.8)
+        ax.annotate(q, (sz, pp), textcoords="offset points", xytext=off,
+                    fontsize=7.5, color=color if color != PALETTE["other"] else PALETTE["muted"],
+                    ha="left", va="center")
     sizes = [rows[q][0] for q in rows]
     ax.set_xlim(min(sizes) * 0.97, max(sizes) * 1.05)
     from matplotlib.ticker import MaxNLocator, FuncFormatter
@@ -525,9 +534,9 @@ def pareto_panel(ax, rows, title, fs=10):
     pad = (ymax - ymin) * 0.18
     ax.set_ylim(ymin - pad, ymax + pad)
     return ax
-
 def w4a8_results():
     from matplotlib.ticker import FuncFormatter
+    ARM_LABEL = {"w4a4": "mxfp4-mxfp4", "w4a8": "mxfp4-mxfp8", "q8": "mxfp4-q8"}
     fig, ax = new_figure(2, 3, w=4.6, h=3.6)
     models = list(W4A_RES.keys())
     panels = [("KLD vs BF16 base", 0, [0.05, 0.1, 0.2, 0.4], "%.4f"),
@@ -546,13 +555,13 @@ def w4a8_results():
             v = [W4A_RES[m][arm][idx] for m in models]
             b = ax[p].bar(x + (si - 1.0) * w, v, width=w,
                           color={"w4a4": PALETTE["other"], "w4a8": PALETTE["mx"], "q8": PALETTE["q8"]}[arm],
-                          edgecolor="white", linewidth=0.4, label=arm)
+                          edgecolor="white", linewidth=0.4, label=ARM_LABEL[arm])
             ax[p].bar_label(b, fmt=fmt, fontsize=7.5, color=PALETTE["text"], padding=2, rotation=90)
         ax[p].set_xticks(x); ax[p].set_xticklabels(models)
         allv = [W4A_RES[m][a][idx] for m in models for a in ("w4a4", "w4a8", "q8")]
         ax[p].set_ylim(min(allv) * 0.85, max(allv) * 1.22)
         ax[p].legend(frameon=False, fontsize=8, loc="upper right")
-    pareto_panel(ax[5], PARETO_27B, "27B: accuracy vs file size (this PR)", fs=9)
+    pareto_panel(ax[5], PARETO_27B, "27B: accuracy vs file size", fs=9)
     save(fig, "w4a8-results.png")
 
 if __name__ == "__main__":
