@@ -6,10 +6,10 @@ scale per 32 values and multiplied against the e2m1 weights with the block-scale
 `GGML_CUDA_MMQ_PREC` keeps `q4` (e2m1 activations, the existing `kind::mxf4` instruction) and `q8`
 (q8_1 activations), and adds `fp8` (this path).
 
-Decode is not affected: a dense MXFP4 `mul_mat` with `ne11 <= 8` (7 for `mul_mat_id`) goes to MMVQ,
-which quantizes `src1` to q8_1, and the fused gate/up GLU path keeps `GGML_PREC_Q8`. The change
-therefore lands on prefill and batched `mul_mat` / `mul_mat_id`; the `tg128` columns below are equal
-across the three arms.
+Decode is not affected: a dense MXFP4 `mul_mat` with `ne11 <= 8` goes to MMVQ, which quantizes `src1`
+to q8_1 regardless of the requested precision, and `mul_mat_id` uses the same limit. The
+change therefore lands on prefill and on batched `mul_mat` / `mul_mat_id`; the `tg128` columns below are
+equal across the three arms.
 
 This is the CUDA mixed-precision MMA piece of [timlikesai/llama.cpp#14](https://github.com/timlikesai/llama.cpp/pull/14),
 which also carries the dense MXFP4 ftype, imatrix weight quantization and an MXFP4 KV cache. It is
@@ -64,23 +64,26 @@ the only deletion in `mmq.cuh`). `compute_e8m0_scale` gains an `emax` argument a
 passes the `2` that was inline before, so FP4 activation quantization is bit-identical. In `mmq.cu` the
 prec resolution, the MXFP4 dispatch case, the `GGML_CUDA_MMQ_PREC` warning string and the two `s12`
 computations are rewritten; `s12` is now derived from `y_block_size / y_values_per_block`, which
-evaluates to master's value for both formats that exist today. The diff is 564 lines across 13 files
-(+501 / -63).
+evaluates to master's value for both formats that exist today. It also stays out of the fused gate/up GLU
+path: #31296 added NVFP4 to `ggml_cuda_mmq_fusion_supported` and MXFP4 is not on that list, so MXFP4
+prefill keeps running the two `mul_mat`s and the `GLU` separately, which is what this path applies to.
+Fused NVFP4 is unaffected because the resolution above still returns Q4 or Q8 for that type. The
+diff is 570 lines across 13 files (+504 / -66).
 
 Correctness, 2x RTX 5070 Ti, `test-backend-ops -b CUDA0 -o "MUL_MAT.*"` - the branch has 9 more cases
 than the base, the new FP4 activation ones:
 
 | build | env | result |
 |---|---|---|
-| branch `804e46dcd` | `unset` | 5045/5045 tests passed |
-| branch `804e46dcd` | `q4` | 5045/5045 tests passed |
-| branch `804e46dcd` | `q8` | 5045/5045 tests passed |
-| branch `804e46dcd` | `fp8` | 5045/5045 tests passed |
-| branch `804e46dcd` | `zzz` | 5045/5045 tests passed |
-| base `3de52ac38` | `unset` | 5036/5036 tests passed |
+| branch `711a36d03` | `unset` | 5051/5051 tests passed |
+| branch `711a36d03` | `q4` | 5051/5051 tests passed |
+| branch `711a36d03` | `q8` | 5051/5051 tests passed |
+| branch `711a36d03` | `fp8` | 5051/5051 tests passed |
+| branch `711a36d03` | `zzz` | 5051/5051 tests passed |
+| base `8bed7cfb9` | `unset` | 5042/5042 tests passed |
 
 All cells below were measured on the 2x RTX 5070 Ti box (driver 615.71.09), on one binary: the branch
-build `804e46dcd` on base `3de52ac38`. Only `GGML_CUDA_MMQ_PREC` changes between arms, and every arm
+build `711a36d03` on base `8bed7cfb9`. Only `GGML_CUDA_MMQ_PREC` changes between arms, and every arm
 reads the same weight file.
 
 ![W4A8 vs W4A4: KLD, PPL, same top-p, prefill pp4096, decode tg128](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-results.png)
@@ -99,7 +102,7 @@ The tables use the `*-mxfp4-imx.gguf` file of each repo. All three arms run on t
 `mxfp4-mxfp4` is `GGML_CUDA_MMQ_PREC=q4`, which is master's current MXFP4 path (`kind::mxf4`, e2m1
 activations); `mxfp4-mxfp8` is the branch default, this path; `mxfp4-q8` is `GGML_CUDA_MMQ_PREC=q8`
 (q8_1 activations through the Ampere MMQ config). The `q4` arm is a stand-in for master in the sense
-that matters: measured on the base binary `3de52ac38`, the same two files give bit-identical results - 0.8B
+that matters: measured on the base binary `8bed7cfb9`, the same two files give bit-identical results - 0.8B
 KLD 0.407929, PPL 21.359005, same top-p 69.847; 27B KLD 0.187541, PPL 6.547698, same top-p 83.958.
 
 Accuracy, KLD and PPL against BF16 reference logits recorded from the unquantized base:
@@ -133,21 +136,23 @@ Throughput results (t/s, mean ± sd over 5 reps):
 
 | model | arm | pp4096 | tg128 |
 |---|---|---:|---:|
-| 0.8B  | mxfp4-mxfp4 | 23525.61 ± 118.59 | 539.04 ± 4.35 |
-| 0.8B  | mxfp4-mxfp8 | 23324.87 ± 93.02 | 537.69 ± 4.09 |
-| 0.8B  | mxfp4-q8    | 22678.14 ± 95.95 | 537.71 ± 4.24 |
-| 27B   | mxfp4-mxfp4 | 2537.35 ± 1.82 | 79.81 ± 0.07 |
-| 27B   | mxfp4-mxfp8 | 2341.19 ± 1.57 | 79.72 ± 0.06 |
-| 27B   | mxfp4-q8    | 2176.77 ± 1.56 | 79.80 ± 0.02 |
-| 35B   | mxfp4-mxfp4 | 5759.31 ± 16.61 | 247.34 ± 2.18 |
-| 35B   | mxfp4-mxfp8 | 5696.90 ± 8.20 | 247.12 ± 2.19 |
-| 35B   | mxfp4-q8    | 5239.99 ± 11.28 | 247.28 ± 2.27 |
+| 0.8B  | mxfp4-mxfp4 | 23053.23 ± 85.55 | 537.00 ± 4.15 |
+| 0.8B  | mxfp4-mxfp8 | 22689.54 ± 122.29 | 535.93 ± 4.97 |
+| 0.8B  | mxfp4-q8    | 22153.55 ± 69.46 | 536.64 ± 4.79 |
+| 27B   | mxfp4-mxfp4 | 2533.43 ± 1.45 | 79.75 ± 0.08 |
+| 27B   | mxfp4-mxfp8 | 2340.93 ± 0.87 | 79.67 ± 0.11 |
+| 27B   | mxfp4-q8    | 2178.46 ± 1.31 | 79.88 ± 0.06 |
+| 35B   | mxfp4-mxfp4 | 5771.72 ± 10.46 | 247.12 ± 2.04 |
+| 35B   | mxfp4-mxfp8 | 5699.58 ± 16.73 | 247.27 ± 2.06 |
+| 35B   | mxfp4-q8    | 5249.46 ± 13.12 | 247.11 ± 2.00 |
 
-The fp8 arm costs 0.9% / 7.7% / 1.1% prefill against the q4 arm on 0.8B / 27B / 35B and gains 2.9% /
-7.6% / 8.7% against q8_1, for accuracy close to q8_1 (tables above). Absolute t/s drift 1-2% between
+The fp8 arm costs 1.6% / 7.6% / 1.2% prefill against the q4 arm on 0.8B / 27B / 35B and gains 2.4% /
+7.4% / 8.6% against q8_1, for accuracy close to q8_1 (tables above). Absolute t/s drifts 1-3% between
 rounds on this box, so read the ratios within one round, not levels across rounds.
 
-The 0.8B cells are noisy at `-r 5`. Re-run at `-r 15` on the same build: `mxfp4-mxfp4` pp4096 23438.40 ± 44.56, tg128 538.50 ± 2.53; `mxfp4-mxfp8` pp4096 23334.33 ± 70.85, tg128 537.25 ± 2.03; `mxfp4-q8` pp4096 22597.16 ± 56.32, tg128 537.90 ± 2.50.
+The 0.8B cells are noisy at `-r 5`. Re-run at `-r 15` on the same build: `mxfp4-mxfp4` pp4096
+23097.18 ± 217.70, tg128 537.99 ± 2.54; `mxfp4-mxfp8` pp4096 23092.41 ± 92.41, tg128 537.05 ± 2.81;
+`mxfp4-q8` pp4096 22375.92 ± 185.55, tg128 537.83 ± 2.50. So 0.8B prefill is within noise at 0.0%.
 
 </details>
 
