@@ -488,13 +488,33 @@ W4A_RES = {
              "q8":   ( 0.0658,   5.9175, 89.548,  5249, 247.1)},
 }
 
-# 27B accuracy-vs-size, single-campaign sweep (fresh, comparable to the mxfp4 arms above)
+# accuracy-vs-size, third row of w4a8-results.png (one panel per model)
+# 27B: single-campaign sweep (fresh, comparable to the mxfp4 arms above)
+# 0.8B/35B: the pareto-sweep-results.tsv campaign (same run as the PPL table above:
+# 35B w4a8 = 5.930 matches it); 35B mxfp4_moe = MoeE layers mxfp4, dense layers q8 (PPL table)
 PARETO_27B = {
     "mxfp4-mxfp4": (15.66, 6.5477), "mxfp4-mxfp8": (15.66, 6.3524), "mxfp4-q8": (15.66, 6.3470),
     "Q4_0": (15.48, 6.4719), "Q4_1": (17.08, 6.3317),
     "Q4_K_M": (18.97, 6.4529), "Q5_1": (20.28, 6.5052),
     "Q8_0": (28.60, 6.4424),
 }
+PARETO_08B = {
+    "mxfp4-mxfp4": (0.56, 21.397), "mxfp4-mxfp8": (0.56, 16.183),
+    "Q4_0": (0.56, 19.136), "Q4_1": (0.55, 15.800),
+    "Q4_K_M": (0.54, 15.303), "Q5_1": (0.61, 15.228),
+    "Q8_0": (0.83, 15.161),
+}
+PARETO_35B = {
+    "mxfp4-mxfp4": (19.04, 6.475), "mxfp4-mxfp8": (19.04, 5.930),
+    "mxfp4_moe": (19.8, 5.776),
+    "Q4_0": (19.72, 5.888), "Q4_1": (21.85, 5.889),
+    "Q4_K_M": (20.42, 5.779), "Q5_1": (26.11, 5.794),
+}
+PARETO_MODELS = [
+    ("0.8B", PARETO_08B),
+    ("27B", PARETO_27B),
+    ("35B-A3B (MoE)", PARETO_35B),
+]
 
 def pareto_panel(ax, rows, title, fs=10):
     """File size (GB) on x, wikitext-2 PPL on y (lower is better). Standard quants and the three
@@ -504,9 +524,10 @@ def pareto_panel(ax, rows, title, fs=10):
     ax.set_ylabel("PPL (lower better)", fontsize=fs - 2)
     # the mxfp8 and q8 arms sit 0.005 PPL apart, so their labels are staggered and the green
     # dot is drawn last to stay visible over the blue one
-    ARMS = (("mxfp4-mxfp4", PALETTE["other"], (10, 4)),
-            ("mxfp4-q8", PALETTE["q8"], (10, -2)),
-            ("mxfp4-mxfp8", PALETTE["mx"], (10, 13)))
+    ARMS = (("mxfp4-mxfp4", PALETTE["other"], "o", (10, 4)),
+            ("mxfp4-q8", PALETTE["q8"], "o", (10, -2)),
+            ("mxfp4-mxfp8", PALETTE["mx"], "o", (10, 13)),
+            ("mxfp4_moe", PALETTE["mx"], "D", (-8, -12)))
     STD_OFF = {}
     for q in ("Q4_0", "Q4_1", "Q4_K_M", "Q5_1", "Q8_0"):
         if q in rows:
@@ -515,15 +536,15 @@ def pareto_panel(ax, rows, title, fs=10):
                        edgecolors="white", linewidths=0.6)
             ax.annotate(q, (sz, pp), textcoords="offset points", xytext=STD_OFF.get(q, (6, 0)),
                         fontsize=7, color=PALETTE["muted"], ha="left", va="center")
-    for q, color, off in ARMS:
+    for q, color, marker, off in ARMS:
         if q not in rows:
             continue
         sz, pp = rows[q]
-        ax.scatter([sz], [pp], s=135, c=color, marker="o", zorder=6,
+        ax.scatter([sz], [pp], s=135, c=color, marker=marker, zorder=6,
                    edgecolors="white", linewidths=0.8)
         ax.annotate(q, (sz, pp), textcoords="offset points", xytext=off,
                     fontsize=7.5, color=color if color != PALETTE["other"] else PALETTE["muted"],
-                    ha="left", va="center")
+                    ha="right" if off[0] < 0 else "left", va="center")
     sizes = [rows[q][0] for q in rows]
     ax.set_xlim(min(sizes) * 0.97, max(sizes) * 1.05)
     from matplotlib.ticker import MaxNLocator, FuncFormatter
@@ -537,7 +558,8 @@ def pareto_panel(ax, rows, title, fs=10):
 def w4a8_results():
     from matplotlib.ticker import FuncFormatter
     ARM_LABEL = {"w4a4": "mxfp4-mxfp4", "w4a8": "mxfp4-mxfp8", "q8": "mxfp4-q8"}
-    fig, ax = new_figure(2, 3, w=4.6, h=3.6)
+    fig, ax = new_figure(3, 3, w=4.6, h=3.6)
+    ax[5].set_visible(False)
     models = list(W4A_RES.keys())
     panels = [("KLD vs BF16 base", 0, [0.05, 0.1, 0.2, 0.4], "%.4f"),
               ("PPL (wikitext-2)", 1, [5, 10, 15, 20], "%.2f"),
@@ -561,7 +583,8 @@ def w4a8_results():
         allv = [W4A_RES[m][a][idx] for m in models for a in ("w4a4", "w4a8", "q8")]
         ax[p].set_ylim(min(allv) * 0.85, max(allv) * 1.22)
         ax[p].legend(frameon=False, fontsize=8, loc="upper right")
-    pareto_panel(ax[5], PARETO_27B, "27B: accuracy vs file size", fs=9)
+    for p, (model, rows) in enumerate(PARETO_MODELS):
+        pareto_panel(ax[6 + p], rows, model + ": accuracy vs file size", fs=9)
     save(fig, "w4a8-results.png")
 
 if __name__ == "__main__":
