@@ -499,24 +499,25 @@ PARETO_27B = {
     "Q8_0": (28.60, 6.4424),
 }
 PARETO_08B = {
-    "mxfp4-mxfp4": (0.56, 21.397), "mxfp4-mxfp8": (0.56, 16.183),
+    "mxfp4-mxfp4": (0.56, 21.397), "mxfp4-mxfp8": (0.56, 16.183), "mxfp4-q8": (0.56, 16.085),
     "Q4_0": (0.56, 19.136), "Q4_1": (0.55, 15.800),
     "Q4_K_M": (0.54, 15.303), "Q5_1": (0.61, 15.228),
     "Q8_0": (0.83, 15.161),
 }
 PARETO_35B = {
-    "mxfp4-mxfp4": (19.04, 6.475), "mxfp4-mxfp8": (19.04, 5.930),
+    "mxfp4-mxfp4": (19.04, 6.475), "mxfp4-mxfp8": (19.04, 5.930), "mxfp4-q8": (19.04, 5.9175),
     "mxfp4_moe": (19.8, 5.776),
     "Q4_0": (19.72, 5.888), "Q4_1": (21.85, 5.889),
     "Q4_K_M": (20.42, 5.779), "Q5_1": (26.11, 5.794),
 }
+# per-model label offsets for the standard quants (the crowded 0.8B cluster needs Q4_1 on the left)
 PARETO_MODELS = [
-    ("0.8B", PARETO_08B),
-    ("27B", PARETO_27B),
-    ("35B-A3B (MoE)", PARETO_35B),
+    ("0.8B", PARETO_08B, {"Q4_1": (-7, 0)}),
+    ("27B", PARETO_27B, {}),
+    ("35B-A3B (MoE)", PARETO_35B, {}),
 ]
 
-def pareto_panel(ax, rows, title, fs=10):
+def pareto_panel(ax, rows, title, fs=10, std_off=None):
     """File size (GB) on x, wikitext-2 PPL on y (lower is better). Standard quants and the three
     mxfp4 activation arms are filled circles; the arms share one x because they read one file."""
     ax.set_title(title, fontsize=fs)
@@ -528,14 +529,16 @@ def pareto_panel(ax, rows, title, fs=10):
             ("mxfp4-q8", PALETTE["q8"], "o", (10, -2)),
             ("mxfp4-mxfp8", PALETTE["mx"], "o", (10, 13)),
             ("mxfp4_moe", PALETTE["mx"], "D", (-8, -12)))
-    STD_OFF = {}
+    STD_OFF = dict({"Q4_0": (6, -12)}, **(std_off or {}))
     for q in ("Q4_0", "Q4_1", "Q4_K_M", "Q5_1", "Q8_0"):
         if q in rows:
             sz, pp = rows[q]
             ax.scatter([sz], [pp], s=46, c=PALETTE["other"], marker="o", zorder=3,
                        edgecolors="white", linewidths=0.6)
-            ax.annotate(q, (sz, pp), textcoords="offset points", xytext=STD_OFF.get(q, (6, 0)),
-                        fontsize=7, color=PALETTE["muted"], ha="left", va="center")
+            off = STD_OFF.get(q, (6, 0))
+            ax.annotate(q, (sz, pp), textcoords="offset points", xytext=off,
+                        fontsize=7, color=PALETTE["muted"],
+                        ha="right" if off[0] < 0 else "left", va="center")
     for q, color, marker, off in ARMS:
         if q not in rows:
             continue
@@ -583,8 +586,8 @@ def w4a8_results():
         allv = [W4A_RES[m][a][idx] for m in models for a in ("w4a4", "w4a8", "q8")]
         ax[p].set_ylim(min(allv) * 0.85, max(allv) * 1.22)
         ax[p].legend(frameon=False, fontsize=8, loc="upper right")
-    for p, (model, rows) in enumerate(PARETO_MODELS):
-        pareto_panel(ax[6 + p], rows, model + ": accuracy vs file size", fs=9)
+    for p, (model, rows, std_off) in enumerate(PARETO_MODELS):
+        pareto_panel(ax[6 + p], rows, model + ": accuracy vs file size", fs=9, std_off=std_off)
     save(fig, "w4a8-results.png")
 
 if __name__ == "__main__":
