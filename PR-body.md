@@ -75,15 +75,15 @@ than the base, the new FP4 activation ones:
 
 | build | env | result |
 |---|---|---|
-| branch `711a36d03` | `unset` | 5051/5051 tests passed |
-| branch `711a36d03` | `q4` | 5051/5051 tests passed |
-| branch `711a36d03` | `q8` | 5051/5051 tests passed |
-| branch `711a36d03` | `fp8` | 5051/5051 tests passed |
-| branch `711a36d03` | `zzz` | 5051/5051 tests passed |
+| branch `3ca37060e` | `unset` | 5051/5051 tests passed |
+| branch `3ca37060e` | `q4` | 5051/5051 tests passed |
+| branch `3ca37060e` | `q8` | 5051/5051 tests passed |
+| branch `3ca37060e` | `fp8` | 5051/5051 tests passed |
+| branch `3ca37060e` | `zzz` | 5051/5051 tests passed |
 | base `8bed7cfb9` | `unset` | 5042/5042 tests passed |
 
 All cells below were measured on the 2x RTX 5070 Ti box (driver 615.71.09), on one binary: the branch
-build `711a36d03` on base `8bed7cfb9`. Only `GGML_CUDA_MMQ_PREC` changes between arms, and every arm
+build `3ca37060e` on base `8bed7cfb9`. Only `GGML_CUDA_MMQ_PREC` changes between arms, and every arm
 reads the same weight file.
 
 ![W4A8 vs W4A4: KLD, PPL, same top-p, prefill pp4096, decode tg128](https://raw.githubusercontent.com/timothyeburke/mxfp4-pr-assets/master/w4a8-results.png)

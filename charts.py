@@ -466,7 +466,7 @@ def kv_uos():
 
 
 # ------------------------------------------------------------------ 5070 Ti throughput (this PR)
-# (pp4096, tg128) t/s, imx quants, one branch build 711a36d03 on base 8bed7cfb9, arms via GGML_CUDA_MMQ_PREC,
+# (pp4096, tg128) t/s, imx quants, one branch build 3ca37060e on base 8bed7cfb9, arms via GGML_CUDA_MMQ_PREC,
 # 2x RTX 5070 Ti (beast), llama-bench -p 4096 -n 128 -sm tensor -fa on -r 5.
 HW_SPD = {
     "0.8B":  {"5070": {"w4a4": (23053, 537.0), "w4a8": (22690, 535.9), "q8": (22154, 536.6)}},
@@ -475,7 +475,7 @@ HW_SPD = {
 }
 
 # ------------------------------------------------------------------ W4A8 vs W4A4 (this branch)
-# imx quants, one branch build 711a36d03 on base 8bed7cfb9, 2x RTX 5070 Ti, round r10 (arms are GGML_CUDA_MMQ_PREC q4 / default / q8). (kld, ppl, topp, pp4096, tg128)
+# imx quants, one branch build 3ca37060e on base 8bed7cfb9, 2x RTX 5070 Ti, round r10 (arms are GGML_CUDA_MMQ_PREC q4 / default / q8). (kld, ppl, topp, pp4096, tg128)
 W4A_RES = {
     "0.8B": {"w4a4": ( 0.4079,  21.3590, 69.847, 23053, 537.0),
              "w4a8": ( 0.1493,  16.1805, 81.231, 22690, 535.9),
